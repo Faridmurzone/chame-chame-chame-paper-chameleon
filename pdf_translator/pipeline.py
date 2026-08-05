@@ -30,6 +30,16 @@ def translate_pdf(
                 file=sys.stderr,
             )
         translator.translate(to_translate)
+        for seg in to_translate:
+            if seg.translation is None:
+                continue
+            seg.translation, missing = seg.unmask(seg.translation)
+            if missing and verbose:
+                print(
+                    f"  aviso: segmento {seg.id} — la traducción omitió "
+                    f"{len(missing)} fórmula(s); se anexaron al final del bloque.",
+                    file=sys.stderr,
+                )
         render_translations(doc, segments, verbose=verbose)
         doc.save(output_path, garbage=3, deflate=True)
     finally:

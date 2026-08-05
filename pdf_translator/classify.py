@@ -16,10 +16,53 @@ SYMBOL_DENSITY_THRESHOLD = 0.45
 def classify_segments(segments: list[Segment], min_chars: int = 2) -> list[Segment]:
     """Marca cada segmento con translate=True/False y el motivo del salto."""
     for seg in segments:
+        if not seg.translate:  # pre-marcado en extracción (p. ej. formula-display)
+            continue
         reason = _skip_reason(seg, min_chars)
         seg.translate = reason is None
         seg.skip_reason = reason
+    resolve_overlaps(segments)
     return segments
+
+
+def resolve_overlaps(segments: list[Segment], min_overlap: float = 3.0) -> None:
+    """Preserva segmentos traducibles cuyo bbox se solapa con otro segmento.
+
+    Los párrafos atravesados por matemática display alta (fracciones, sumatorias)
+    quedan fragmentados en bloques con bboxes solapados: re-insertar sus traducciones
+    pisaría la fórmula o a los otros fragmentos. Ante un solapamiento real se
+    preservan los originales — mejor un párrafo sin traducir que uno corrupto.
+    """
+    by_page: dict[int, list[Segment]] = {}
+    for seg in segments:
+        by_page.setdefault(seg.page, []).append(seg)
+
+    for segs in by_page.values():
+        for _ in range(10):  # hasta punto fijo (preservar puede crear nuevos conflictos)
+            changed = False
+            preserved = [s for s in segs if not s.translate]
+            translated = [s for s in segs if s.translate]
+            for s in translated:
+                if any(_overlaps(s.bbox, p.bbox, min_overlap) for p in preserved):
+                    s.translate = False
+                    s.skip_reason = "solapa-preservado"
+                    changed = True
+            translated = [s for s in segs if s.translate]
+            for i, s in enumerate(translated):
+                for t in translated[i + 1:]:
+                    if _overlaps(s.bbox, t.bbox, min_overlap):
+                        s.translate = t.translate = False
+                        s.skip_reason = t.skip_reason = "solapa-fragmento"
+                        changed = True
+            if not changed:
+                break
+
+
+def _overlaps(a: tuple, b: tuple, min_overlap: float) -> bool:
+    """Solapamiento real entre rects (ignora el roce de líneas adyacentes)."""
+    ix = min(a[2], b[2]) - max(a[0], b[0])
+    iy = min(a[3], b[3]) - max(a[1], b[1])
+    return ix > min_overlap and iy > min_overlap
 
 
 def _skip_reason(seg: Segment, min_chars: int) -> str | None:

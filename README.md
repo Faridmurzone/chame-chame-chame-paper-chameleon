@@ -21,6 +21,14 @@ El pipeline trabaja **in-place** sobre el PDF original, en cuatro etapas:
    - alta densidad de símbolos/letras griegas → fórmula
    - fuentes monoespaciadas dominantes → código
    - solo números/puntuación (números de página, ejes) o URLs/DOIs → se preservan
+   - segmentos cuyo bbox se solapa con una fórmula preservada → se preservan
+     (mejor un párrafo sin traducir que uno corrupto)
+
+   Además, la **matemática inline** dentro de un párrafo (variables, símbolos,
+   letras griegas, superíndices) se **enmascara con placeholders** `⟦n⟧` antes de
+   traducir y se restaura verbatim después, así nunca la toca el traductor. Las
+   líneas de matemática *display* directamente no se tocan: quedan en el PDF con su
+   tipografía original.
 3. **Traducción** (`translate.py`): los bloques se envían en lotes a la API de Claude
    con salida estructurada (JSON), con instrucciones de terminología (ver abajo).
 4. **Render** (`render.py`): se *redacta* (borra) únicamente el texto de los bloques
@@ -79,9 +87,13 @@ texto original en lugar de romper el documento.
 
 ## Estado y limitaciones conocidas
 
-- **Fórmulas inline dentro de un párrafo**: si una fórmula corta está mezclada en un
-  bloque de prosa, viaja dentro del texto a traducir; el prompt instruye reproducirla
-  verbatim, pero puede perder la fuente matemática original.
+- **Párrafos atravesados por matemática display alta** (fracciones, sumatorias con
+  límites): esos párrafos quedan fragmentados en el PDF con cajas solapadas, así que
+  se preservan completos en el idioma original en lugar de arriesgar un render
+  corrupto. Suelen ser pocos por paper.
+- **Matemática inline re-renderizada**: los símbolos restaurados desde placeholders
+  se re-insertan con la fuente del bloque (no con la fuente matemática original);
+  el contenido es idéntico pero el glifo puede diferir levemente.
 - **Tipografía**: el texto traducido se inserta con una fuente sans-serif embebida,
   no con la fuente original del paper (las fuentes de los PDFs suelen ser subconjuntos
   no reutilizables). Se preservan tamaño, color, negrita e itálica.

@@ -97,11 +97,34 @@ cortas.
   embebidas, respeta negrita/itálica/color/tamaño vía CSS y reduce la escala hasta
   que el texto entra en el rectángulo original.
 
+### Fórmulas inline: placeholders ⟦n⟧
+
+La matemática inline se detecta en dos niveles durante la extracción:
+
+- **Por span**: fuentes matemáticas (cmmi, cmsy, …), densidad de símbolos ≥ 0.5, o
+  superíndices cortos (exponentes, notas al pie).
+- **Por carácter**: runs de caracteres de bloques Unicode matemáticos (griego,
+  operadores, flechas, sub/superíndices, alfanuméricos matemáticos), fusionando runs
+  separados solo por espacios.
+
+Cada run se reemplaza por un placeholder `⟦n⟧`; el prompt instruye conservarlos
+exactamente una vez en su posición natural, y tras traducir se restaura el contenido
+original. Si el modelo omite un placeholder, su contenido se anexa al final del
+bloque (no se pierde) y se emite un aviso.
+
+Las líneas de **matemática display** (≥ 50 % de caracteres en fuentes matemáticas, o
+casi todo enmascarado) no generan segmento traducible: quedan intactas en el PDF con
+su tipografía original. Como los párrafos atravesados por matemática alta (fracciones)
+quedan fragmentados en bloques con bboxes solapados, un pase de resolución de
+conflictos preserva cualquier segmento traducible que se solape con un segmento
+preservado o con otro fragmento — evita corromper la zona a cambio de dejar ese
+párrafo en el idioma original.
+
 ## Mejoras futuras (en orden sugerido)
 
-1. **Detección de fórmulas inline** dentro de párrafos (hoy viajan como texto y el
-   prompt las reproduce verbatim): enmascararlas con placeholders antes de traducir y
-   restaurarlas después.
+1. **Reordenar y fusionar fragmentos solapados**: los párrafos partidos por
+   matemática display hoy se preservan; se podrían fusionar sus fragmentos en un solo
+   segmento con reflow para traducirlos también.
 2. **Batch API** de Anthropic para documentos largos (50 % de descuento, sin apuro).
 3. **Modelo de layout** (DocLayout-YOLO) como clasificador opcional de mayor precisión.
 4. **OCR previo** (para PDFs escaneados) con la capa de texto invisible.

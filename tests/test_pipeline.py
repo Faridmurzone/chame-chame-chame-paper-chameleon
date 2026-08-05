@@ -42,8 +42,12 @@ def test_extract_and_classify(sample_pdf):
     para = next(s for s in segments if s.text.startswith("Large language"))
     assert para.translate
 
-    formula = next(s for s in segments if "∑" in s.text)
-    assert not formula.translate, f"la fórmula debería saltearse: {formula.skip_reason}"
+    # La fórmula display queda protegida: o no se traduce, o viaja enmascarada
+    for s in segments:
+        if "∑" in s.text:
+            assert not s.translate
+        if any("∑" in m for m in s.masks) and s.translate:
+            assert "∑" not in s.text  # está en masks, no en el texto a traducir
 
     page_number = next(s for s in segments if s.text.strip() == "42")
     assert not page_number.translate
@@ -56,7 +60,7 @@ def test_full_pipeline_preserves_images_and_formulas(sample_pdf, tmp_path):
     out = str(tmp_path / "out.pdf")
     stats = translate_pdf(sample_pdf, out, MockTranslator(), verbose=False)
     assert stats["translated"] >= 2
-    assert stats["skipped"] >= 2
+    assert stats["skipped"] >= 1  # el número de página; la fórmula ni genera segmento
 
     doc = fitz.open(out)
     page = doc[0]
@@ -70,6 +74,39 @@ def test_full_pipeline_preserves_images_and_formulas(sample_pdf, tmp_path):
     # La imagen sigue presente
     assert len(page.get_images()) == 1
     doc.close()
+
+
+def test_unmask_restores_formulas():
+    from pdf_translator.segments import Segment
+
+    seg = Segment(id=0, page=0, bbox=(0, 0, 1, 1), text="El valor ⟦0⟧ crece con ⟦1⟧.",
+                  masks=["∑αᵢxᵢ", "n²"])
+    restored, missing = seg.unmask("The value ⟦0⟧ grows with ⟦1⟧.")
+    assert restored == "The value ∑αᵢxᵢ grows with n²."
+    assert missing == []
+
+    # Placeholder omitido por la traducción: se anexa al final, no se pierde
+    restored, missing = seg.unmask("The value ⟦0⟧ grows.")
+    assert "∑αᵢxᵢ" in restored and restored.endswith("n²")
+    assert missing == [1]
+
+
+def test_inline_math_is_masked():
+    doc = fitz.open()
+    page = doc.new_page(width=595, height=842)
+    page.insert_htmlbox(
+        fitz.Rect(50, 60, 545, 120),
+        "The optimal value ∑ᵢ αᵢ·xᵢ ⩽ Ω grows linearly with the input size.",
+    )
+    segments = classify_segments(extract_segments(doc))
+    doc.close()
+    seg = next(s for s in segments if "optimal value" in s.text)
+    assert seg.translate
+    assert seg.masks, "el bloque debería tener fórmulas enmascaradas"
+    assert "⟦0⟧" in seg.text
+    assert "∑" not in seg.text  # la fórmula ya no viaja en el texto a traducir
+    restored, _ = seg.unmask(seg.text)
+    assert "∑" in restored
 
 
 def test_hyphen_join():

@@ -59,6 +59,9 @@ translate it but keep the original term in parentheses the first time it appears
 - Do NOT translate: proper names, author names, acronyms, citations like [12] or \
 (Smith et al., 2020), URLs, identifiers, variable names, inline math and symbols — \
 reproduce them verbatim inside the translated sentence.
+- Some segments contain placeholders like ⟦0⟧, ⟦1⟧ protecting inline formulas or \
+symbols. Keep each placeholder exactly as-is, exactly once, at its natural position \
+in the translated sentence. Never translate, drop, merge, or duplicate a placeholder.
 - Segment boundaries follow the PDF layout, so a segment may start or end \
 mid-sentence. Translate each segment on its own without merging, dropping, or \
 reordering segments.
