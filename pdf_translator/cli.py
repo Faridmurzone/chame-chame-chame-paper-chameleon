@@ -13,6 +13,16 @@ LANG_NAMES = {
     "it": "Italian",
 }
 
+# Códigos de idioma de Tesseract para el OCR de páginas escaneadas
+TESSERACT_LANGS = {
+    "en": "eng",
+    "es": "spa",
+    "pt": "por",
+    "fr": "fra",
+    "de": "deu",
+    "it": "ita",
+}
+
 
 def _parse_pages(spec: str) -> list[int]:
     """'1-3,7' -> [0, 1, 2, 6] (índices base 0)."""
@@ -37,6 +47,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--source", default="en", help="Idioma origen (default: en)")
     parser.add_argument("--model", default=None, help="Modelo de Claude a usar")
     parser.add_argument("--glossary", help="Archivo con términos (uno por línea) a NO traducir")
+    parser.add_argument(
+        "--no-doc-glossary", action="store_true",
+        help="Desactiva el pase previo que extrae la terminología del documento",
+    )
     parser.add_argument("--pages", help="Páginas a traducir, ej. '1-3,7' (default: todas)")
     parser.add_argument(
         "--mock", action="store_true",
@@ -69,6 +83,7 @@ def main(argv: list[str] | None = None) -> int:
             source_lang=LANG_NAMES.get(args.source, args.source),
             target_lang=LANG_NAMES.get(args.to, args.to),
             glossary=glossary,
+            document_glossary=not args.no_doc_glossary,
             verbose=not args.quiet,
         )
 
@@ -79,6 +94,7 @@ def main(argv: list[str] | None = None) -> int:
         output,
         translator,
         pages=_parse_pages(args.pages) if args.pages else None,
+        ocr_language=TESSERACT_LANGS.get(args.source, "eng"),
         verbose=not args.quiet,
     )
     if not args.quiet:

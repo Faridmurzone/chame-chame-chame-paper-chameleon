@@ -37,6 +37,19 @@ El pipeline trabaja **in-place** sobre el PDF original, en cuatro etapas:
    texto traducido ocupa más que el original (el español suele ser ~15–20 % más largo
    que el inglés).
 
+Además:
+
+- **Tablas**: se detectan con `find_tables()` y se traducen **celda por celda**
+  dentro de su rect; las celdas numéricas y los encabezados matemáticos se preservan.
+- **Hipervínculos**: los links (citas clickeables, URLs) se capturan antes de la
+  redacción y se re-insertan después — no se pierde ninguno.
+- **PDFs escaneados**: las páginas sin capa de texto pasan automáticamente por OCR
+  (Tesseract); el texto traducido se inserta cubriendo el original de la imagen.
+- **Glosario por documento**: un pase previo barato (Haiku) extrae la terminología
+  del paper y fija traducciones consistentes para todo el documento
+  (desactivable con `--no-doc-glossary`).
+- **Dedupe**: los textos repetidos (encabezados de página) se traducen una sola vez.
+
 El análisis de alternativas (OCR + reconstrucción, conversión a HTML/DOCX, modelos de
 layout, etc.) y por qué se eligió este enfoque está en
 [`docs/APPROACH.md`](docs/APPROACH.md).
@@ -58,9 +71,24 @@ Se puede ampliar la lista con un glosario propio: `--glossary terminos.txt`
 ## Instalación
 
 ```bash
-pip install -e .
+pip install -e .          # CLI
+pip install -e ".[web]"   # CLI + interfaz web
 export ANTHROPIC_API_KEY=sk-ant-...
 ```
+
+Para PDFs escaneados hace falta Tesseract: `apt install tesseract-ocr
+tesseract-ocr-eng` (más los idiomas que uses, p. ej. `tesseract-ocr-spa`).
+
+## Interfaz web
+
+```bash
+pdf-translate-web
+# abre http://127.0.0.1:8484
+```
+
+Arrastrás el PDF, elegís idioma, ves el progreso por bloques y descargás el
+resultado. La API key sale de `ANTHROPIC_API_KEY` del servidor o del formulario;
+el modo mock permite previsualizar el layout sin gastar API.
 
 ## Uso
 
@@ -97,8 +125,9 @@ texto original en lugar de romper el documento.
 - **Tipografía**: el texto traducido se inserta con una fuente sans-serif embebida,
   no con la fuente original del paper (las fuentes de los PDFs suelen ser subconjuntos
   no reutilizables). Se preservan tamaño, color, negrita e itálica.
-- **Texto dentro de imágenes**: no se traduce (fuera de alcance por ahora).
-- PDFs escaneados (sin capa de texto) requieren OCR previo — no soportado aún.
+- **Texto dentro de imágenes** (diagramas, figuras): no se traduce.
+- **OCR best-effort**: en páginas escaneadas la calidad depende del escaneo;
+  layouts complejos (grillas de autores, columnas irregulares) pueden salir ruidosos.
 
 ## Tests
 

@@ -120,15 +120,57 @@ conflictos preserva cualquier segmento traducible que se solape con un segmento
 preservado o con otro fragmento — evita corromper la zona a cambio de dejar ese
 párrafo en el idioma original.
 
+### Tablas
+
+`page.find_tables()` detecta tablas por líneas vectoriales. Se filtran falsos
+positivos (más de 15 columnas suele ser una figura). Los bloques dentro del área de
+una tabla se descartan y se reemplazan por un segmento por celda, que se traduce
+dentro del rect de la celda (con todo el ancho/alto restante para absorber la
+expansión del texto). Las celdas numéricas y matemáticas quedan preservadas por la
+clasificación normal.
+
+### Hipervínculos
+
+`apply_redactions` destruye los links que tocan las zonas redactadas (en un paper de
+prueba: 88 → 2). Se capturan con `page.get_links()` antes de redactar y se
+re-insertan los perdidos después, comparando por rect + destino.
+
+### OCR (PDFs escaneados)
+
+Una página con < 30 caracteres de texto extraíble pero con imágenes se considera
+escaneada: se extrae con `get_textpage_ocr` (Tesseract, 300 dpi, idioma según
+`--source`) y produce la misma estructura de dict que una página normal, así que el
+resto del pipeline no cambia. La diferencia está en el render: no hay texto que
+redactar (es parte de la imagen), así que se cubre el bbox con un rect blanco y se
+inserta la traducción encima.
+
+### Glosario por documento (dos pasadas)
+
+Antes de traducir, un pase con `claude-haiku-4-5` recibe una muestra del texto
+(24 000 caracteres) y devuelve: términos que se mantienen en el idioma original y
+términos recurrentes con su traducción fija. Eso se inyecta en el system prompt de
+todos los lotes → el mismo término se traduce igual en la página 2 y en la 9. Si el
+pase falla, se sigue sin glosario (best-effort).
+
+### Dedupe
+
+Los segmentos con texto idéntico (encabezados que se repiten en cada página) se
+traducen una sola vez y la traducción se copia al resto.
+
+## Interfaz web
+
+`pdf_translator/web.py` (FastAPI) + una página estática. Los jobs corren en un
+thread con estado en memoria (herramienta local, no servicio multiusuario): subida
+multipart → job id → polling de estado (etapa + bloques traducidos/total) →
+descarga. La API key sale del env del servidor o del formulario.
+
 ## Mejoras futuras (en orden sugerido)
 
 1. **Reordenar y fusionar fragmentos solapados**: los párrafos partidos por
    matemática display hoy se preservan; se podrían fusionar sus fragmentos en un solo
    segmento con reflow para traducirlos también.
-2. **Batch API** de Anthropic para documentos largos (50 % de descuento, sin apuro).
-3. **Modelo de layout** (DocLayout-YOLO) como clasificador opcional de mayor precisión.
-4. **OCR previo** (para PDFs escaneados) con la capa de texto invisible.
-5. **Fuentes**: intentar reutilizar/matchear la fuente original (serif vs sans) para
-   un resultado más fiel.
-6. **Más idiomas**: la arquitectura ya es agnóstica del par de idiomas (`--to`,
-   `--source`); solo falta validar longitudes de expansión por idioma.
+2. **Modo bilingüe**: páginas original/traducida intercaladas o lado a lado.
+3. **Batch API** de Anthropic para documentos largos (50 % de descuento, sin apuro).
+4. **Fuente serif** cuando el original es serif, para mayor fidelidad visual.
+5. **Estimación de costo** previa con `count_tokens`.
+6. **Modelo de layout** (DocLayout-YOLO) como clasificador opcional de mayor precisión.

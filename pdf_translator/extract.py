@@ -167,12 +167,60 @@ class _LineInfo:
         return bool(self.masks) and alpha < 3
 
 
-def extract_segments(doc: fitz.Document, pages: list[int] | None = None) -> list[Segment]:
+MAX_TABLE_COLS = 15  # más columnas suele ser un falso positivo (figuras, diagramas)
+
+
+def _find_table_cells(page: fitz.Page) -> tuple[list[fitz.Rect], list[fitz.Rect]]:
+    """Devuelve (rects_de_celdas, rects_de_tablas) plausibles de la página."""
+    try:
+        tables = page.find_tables().tables
+    except Exception:
+        return [], []
+    cells: list[fitz.Rect] = []
+    rects: list[fitz.Rect] = []
+    for t in tables:
+        if t.row_count < 2 or not (2 <= t.col_count <= MAX_TABLE_COLS):
+            continue
+        rects.append(fitz.Rect(t.bbox))
+        cells.extend(fitz.Rect(c) for c in t.cells if c is not None)
+    return cells, rects
+
+
+def _mostly_inside(bbox: tuple, rects: list[fitz.Rect]) -> bool:
+    r = fitz.Rect(bbox)
+    if r.is_empty:
+        return False
+    return any((r & t).get_area() / r.get_area() > 0.5 for t in rects if not (r & t).is_empty)
+
+
+def _needs_ocr(page: fitz.Page) -> bool:
+    """Página escaneada: sin capa de texto útil pero con imágenes."""
+    return len(page.get_text().strip()) < 30 and bool(page.get_images())
+
+
+def _ocr_textpage(page: fitz.Page, language: str) -> "fitz.TextPage":
+    try:
+        return page.get_textpage_ocr(full=True, dpi=300, language=language)
+    except (RuntimeError, OSError) as e:
+        raise RuntimeError(
+            "Esta página parece escaneada y requiere OCR, pero Tesseract no está "
+            "disponible. Instalalo (p. ej. `apt install tesseract-ocr "
+            "tesseract-ocr-eng`) o excluí la página con --pages. "
+            f"Error original: {e}"
+        ) from e
+
+
+def extract_segments(
+    doc: fitz.Document,
+    pages: list[int] | None = None,
+    ocr_language: str = "eng",
+) -> list[Segment]:
     """Devuelve un Segment por run de líneas de prosa.
 
     Dentro de un bloque, las líneas de matemática display no generan segmento: quedan
     intactas en el PDF, y los runs de prosa que las rodean se traducen por separado,
-    cada uno con su propio bounding box.
+    cada uno con su propio bounding box. Las tablas detectadas se segmentan por celda.
+    Las páginas escaneadas (sin capa de texto) pasan por OCR con Tesseract.
     """
     segments: list[Segment] = []
     seg_id = 0
@@ -180,9 +228,20 @@ def extract_segments(doc: fitz.Document, pages: list[int] | None = None) -> list
 
     for pno in page_numbers:
         page = doc[pno]
-        data = page.get_text("dict")
+        use_ocr = _needs_ocr(page)
+        if use_ocr:
+            # find_tables depende de líneas vectoriales: no aplica a escaneos
+            table_cells, table_rects = [], []
+            data = page.get_text("dict", textpage=_ocr_textpage(page, ocr_language))
+        else:
+            table_cells, table_rects = _find_table_cells(page)
+            data = page.get_text("dict")
+        first_seg_of_page = len(segments)
         for block in data["blocks"]:
             if block.get("type") != 0:  # 0 = texto; 1 = imagen
+                continue
+            # El texto dentro de tablas se maneja por celda, no por bloque
+            if table_rects and _mostly_inside(block["bbox"], table_rects):
                 continue
             run: list[_LineInfo] = []
             for line in block["lines"]:
@@ -210,7 +269,36 @@ def extract_segments(doc: fitz.Document, pages: list[int] | None = None) -> list
                     run.append(info)
             seg_id = _flush_run(run, segments, seg_id, pno)
 
+        for cell in table_cells:
+            seg_id = _extract_cell(page, cell, segments, seg_id, pno)
+
+        if use_ocr:
+            for seg in segments[first_seg_of_page:]:
+                seg.ocr = True
+
     return segments
+
+
+def _extract_cell(
+    page: fitz.Page, cell: fitz.Rect, segments: list[Segment], seg_id: int, pno: int
+) -> int:
+    """Extrae el contenido de una celda de tabla como un único segmento."""
+    data = page.get_text("dict", clip=cell)
+    run: list[_LineInfo] = []
+    for block in data["blocks"]:
+        if block.get("type") != 0:
+            continue
+        for line in block["lines"]:
+            info = _LineInfo(line)
+            if info.text:
+                run.append(info)
+    before = len(segments)
+    seg_id = _flush_run(run, segments, seg_id, pno)
+    # Dar a la traducción todo el ancho/alto restante de la celda (el texto
+    # traducido suele ser más largo), manteniendo la posición vertical original.
+    for seg in segments[before:]:
+        seg.bbox = (cell.x0 + 1, seg.bbox[1], cell.x1 - 1, cell.y1 - 1)
+    return seg_id
 
 
 def _flush_run(run: list["_LineInfo"], segments: list[Segment], seg_id: int, pno: int) -> int:

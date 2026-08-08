@@ -22,6 +22,42 @@ DEFAULT_KEEP_TERMS = [
     "cloud", "deploy", "debug", "script", "kernel", "buffer", "cache", "batch",
 ]
 
+GLOSSARY_MODEL = "claude-haiku-4-5"
+
+GLOSSARY_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "keep": {"type": "array", "items": {"type": "string"}},
+        "translations": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "term": {"type": "string"},
+                    "translation": {"type": "string"},
+                },
+                "required": ["term", "translation"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    "required": ["keep", "translations"],
+    "additionalProperties": False,
+}
+
+GLOSSARY_PROMPT = """\
+You are preparing a terminology sheet for translating a technical/academic paper \
+from {source} to {target}. From the paper text you receive, produce:
+
+1. "keep": technical terms appearing in the text that practitioners normally leave \
+untranslated in {target} (borrowed terms the community uses as-is).
+2. "translations": recurring technical terms that SHOULD be translated, each with \
+the exact {target} translation to use consistently throughout the document.
+
+Only include terms that actually appear in the text. At most 30 entries in total. \
+Do not include proper names, acronyms, or citations.
+"""
+
 SCHEMA = {
     "type": "object",
     "properties": {
@@ -89,24 +125,80 @@ class ClaudeTranslator:
         source_lang: str = "English",
         target_lang: str = "Spanish",
         glossary: list[str] | None = None,
+        document_glossary: bool = True,
         max_batch_chars: int = 6000,
+        api_key: str | None = None,
         verbose: bool = True,
     ):
         import anthropic
 
-        self.client = anthropic.Anthropic()
+        self.client = anthropic.Anthropic(api_key=api_key) if api_key else anthropic.Anthropic()
         self.model = model
+        self.source_lang = source_lang
+        self.target_lang = target_lang
+        self.document_glossary = document_glossary
         self.max_batch_chars = max_batch_chars
         self.verbose = verbose
-        keep_terms = list(dict.fromkeys(DEFAULT_KEEP_TERMS + (glossary or [])))
-        extra = ", " + ", ".join(f'"{t}"' for t in keep_terms[4:30]) if len(keep_terms) > 4 else ""
-        self.system = SYSTEM_PROMPT.format(
-            source=source_lang, target=target_lang, extra_terms=extra
+        self.user_keep_terms = glossary or []
+        self.system = self._build_system(self.user_keep_terms, [])
+
+    def _build_system(self, keep_terms: list[str], fixed: list[dict]) -> str:
+        keep = list(dict.fromkeys(DEFAULT_KEEP_TERMS + keep_terms))
+        extra = ", " + ", ".join(f'"{t}"' for t in keep[4:40]) if len(keep) > 4 else ""
+        system = SYSTEM_PROMPT.format(
+            source=self.source_lang, target=self.target_lang, extra_terms=extra
         )
+        if fixed:
+            table = "\n".join(f'- "{e["term"]}" -> "{e["translation"]}"' for e in fixed)
+            system += (
+                "\n- Translate these recurring terms consistently, always with the "
+                f"given translation:\n{table}\n"
+            )
+        return system
+
+    # Callback opcional (done, total) para reportar avance (lo usa la web UI)
+    on_progress = None
 
     def translate(self, segments: list[Segment]) -> None:
+        if self.document_glossary and segments:
+            self._apply_document_glossary(segments)
+        done = 0
         for batch in self._batches(segments):
             self._translate_batch(batch)
+            done += len(batch)
+            if self.on_progress:
+                self.on_progress(done, len(segments))
+
+    def _apply_document_glossary(self, segments: list[Segment]) -> None:
+        """Pase previo barato: extrae la terminología del documento para traducirla
+        de forma consistente en todos los lotes."""
+        sample = "\n".join(s.text for s in segments)[:24000]
+        try:
+            response = self.client.messages.create(
+                model=GLOSSARY_MODEL,
+                max_tokens=2000,
+                system=GLOSSARY_PROMPT.format(
+                    source=self.source_lang, target=self.target_lang
+                ),
+                output_config={"format": {"type": "json_schema", "schema": GLOSSARY_SCHEMA}},
+                messages=[{"role": "user", "content": sample}],
+            )
+            if response.stop_reason == "refusal":
+                raise RuntimeError("refusal")
+            text = next(b.text for b in response.content if b.type == "text")
+            data = json.loads(text)
+        except Exception as e:
+            self._warn(f"no se pudo generar el glosario del documento ({e}); sigo sin él.")
+            return
+        keep = self.user_keep_terms + data.get("keep", [])
+        fixed = data.get("translations", [])
+        self.system = self._build_system(keep, fixed)
+        if self.verbose:
+            print(
+                f"  glosario del documento: {len(data.get('keep', []))} términos se "
+                f"mantienen, {len(fixed)} con traducción fija.",
+                file=sys.stderr,
+            )
 
     def _batches(self, segments: list[Segment]):
         batch: list[Segment] = []

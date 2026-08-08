@@ -109,6 +109,63 @@ def test_inline_math_is_masked():
     assert "∑" in restored
 
 
+def test_dedupe_translates_once():
+    from pdf_translator.pipeline import _translate_deduped
+    from pdf_translator.segments import Segment
+
+    class CountingTranslator:
+        def __init__(self):
+            self.calls = 0
+
+        def translate(self, segments):
+            for s in segments:
+                self.calls += 1
+                s.translation = f"[T] {s.text}"
+
+    segs = [
+        Segment(id=0, page=0, bbox=(0, 0, 1, 1), text="Running header"),
+        Segment(id=1, page=0, bbox=(0, 0, 1, 1), text="Cuerpo único"),
+        Segment(id=2, page=1, bbox=(0, 0, 1, 1), text="Running header"),
+    ]
+    tr = CountingTranslator()
+    _translate_deduped(tr, segs)
+    assert tr.calls == 2  # el header repetido se traduce una sola vez
+    assert segs[2].translation == "[T] Running header"
+
+
+@pytest.mark.skipif(
+    __import__("shutil").which("tesseract") is None, reason="tesseract no instalado"
+)
+def test_ocr_scanned_page(tmp_path):
+    # "Escaneo": página con el texto renderizado como imagen, sin capa de texto
+    src = fitz.open()
+    page = src.new_page(width=595, height=842)
+    page.insert_textbox(
+        fitz.Rect(70, 100, 520, 300),
+        "This scanned document explains a simple framework for testing.",
+        fontsize=16, fontname="helv",
+    )
+    pix = page.get_pixmap(dpi=150)
+    src.close()
+
+    scan = fitz.open()
+    page = scan.new_page(width=595, height=842)
+    page.insert_image(page.rect, stream=pix.tobytes("png"))
+    path = str(tmp_path / "scan.pdf")
+    scan.save(path)
+    scan.close()
+
+    out = str(tmp_path / "scan.out.pdf")
+    stats = translate_pdf(path, out, MockTranslator(), verbose=False)
+    assert stats["translated"] >= 1
+
+    doc = fitz.open(out)
+    text = doc[0].get_text()
+    assert "[ES]" in text and "framework" in text
+    assert len(doc[0].get_images()) == 1  # la imagen del escaneo sigue presente
+    doc.close()
+
+
 def test_hyphen_join():
     from pdf_translator.extract import _join_lines
 

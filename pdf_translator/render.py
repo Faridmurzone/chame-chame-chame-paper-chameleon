@@ -22,16 +22,43 @@ def render_translations(doc: fitz.Document, segments: list[Segment], verbose: bo
 
     for pno, segs in sorted(by_page.items()):
         page = doc[pno]
+        links_before = page.get_links()
+        to_redact = [s for s in segs if not s.ocr]
+        if to_redact:
+            for seg in to_redact:
+                page.add_redact_annot(fitz.Rect(seg.bbox))
+            # Borrar solo texto: imágenes y gráficos vectoriales quedan intactos
+            page.apply_redactions(
+                images=fitz.PDF_REDACT_IMAGE_NONE,
+                graphics=fitz.PDF_REDACT_LINE_ART_NONE,
+                text=fitz.PDF_REDACT_TEXT_REMOVE,
+            )
         for seg in segs:
-            page.add_redact_annot(fitz.Rect(seg.bbox))
-        # Borrar solo texto: imágenes y gráficos vectoriales quedan intactos
-        page.apply_redactions(
-            images=fitz.PDF_REDACT_IMAGE_NONE,
-            graphics=fitz.PDF_REDACT_LINE_ART_NONE,
-            text=fitz.PDF_REDACT_TEXT_REMOVE,
-        )
-        for seg in segs:
+            if seg.ocr:
+                # Página escaneada: el texto es parte de la imagen — se cubre
+                page.draw_rect(fitz.Rect(seg.bbox), color=None, fill=(1, 1, 1))
             _insert_segment(page, seg, verbose)
+        _restore_links(page, links_before)
+
+
+def _link_key(link: dict) -> tuple:
+    r = link.get("from", fitz.Rect())
+    return (
+        link.get("kind"),
+        round(r.x0, 1), round(r.y0, 1), round(r.x1, 1), round(r.y1, 1),
+        link.get("uri"), link.get("page"), str(link.get("to")),
+    )
+
+
+def _restore_links(page: fitz.Page, links_before: list[dict]) -> None:
+    """Re-inserta los hipervínculos que la redacción eliminó."""
+    surviving = {_link_key(l) for l in page.get_links()}
+    for link in links_before:
+        if _link_key(link) not in surviving:
+            try:
+                page.insert_link(link)
+            except Exception:
+                pass  # un link irrecuperable no debe abortar el documento
 
 
 def _insert_segment(page: fitz.Page, seg: Segment, verbose: bool) -> None:

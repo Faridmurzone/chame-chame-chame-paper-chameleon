@@ -15,10 +15,15 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8"]
+dev = ["pytest>=8", "httpx"]
+web = ["fastapi>=0.110", "uvicorn>=0.29", "python-multipart>=0.0.9"]
 
 [project.scripts]
 pdf-translate = "pdf_translator.cli:main"
+pdf-translate-web = "pdf_translator.web:main"
 
 [tool.setuptools.packages.find]
 include = ["pdf_translator*"]
+
+[tool.setuptools.package-data]
+pdf_translator = ["static/*.html"]

@@ -31,6 +31,8 @@ class Segment:
     translation: str | None = None
     # Contenido original de cada placeholder ⟦i⟧ presente en `text`
     masks: list[str] = field(default_factory=list)
+    # True si el texto proviene de OCR (página escaneada): se cubre, no se redacta
+    ocr: bool = False
 
     @property
     def color_hex(self) -> str:
