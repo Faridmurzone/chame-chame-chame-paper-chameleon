@@ -107,7 +107,9 @@ def test_anthropic_falls_back_when_sdk_lacks_fallbacks():
         calls.append("plain")
         return SimpleNamespace(
             stop_reason="end_turn",
-            content=[SimpleNamespace(text='{"translations": [{"id": 0, "text": "hola"}]}')],
+            content=[SimpleNamespace(
+                type="text", text='{"translations": [{"id": 0, "text": "hola"}]}'
+            )],
         )
 
     t.client = SimpleNamespace(
