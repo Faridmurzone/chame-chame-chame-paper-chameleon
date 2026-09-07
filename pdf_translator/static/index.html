@@ -585,6 +585,7 @@ async function showPdfJs(keepScroll) {
   const token = ++renderToken;
   const scrollEl = $("#pdfScroll");
   const keep = keepScroll ? scrollEl.scrollTop : 0;
+  const keepX = keepScroll ? scrollEl.scrollLeft : 0;  // scroll horizontal (zoom alto)
   const doc = await getDoc(viewMode);
   if (token !== renderToken) return;
   totalPages = doc.numPages;
@@ -592,6 +593,8 @@ async function showPdfJs(keepScroll) {
   if (token !== renderToken) return;
   buildThumbs(doc);
   scrollEl.scrollTop = keep;
+  // clamp: por si el otro PDF es un poco más angosto
+  scrollEl.scrollLeft = Math.max(0, Math.min(keepX, scrollEl.scrollWidth - scrollEl.clientWidth));
   curPage = Math.min(Math.max(curPage, 1), totalPages);
   queueRender();
   highlightThumb();
