@@ -14,7 +14,7 @@
     margin:0; background:var(--bg); color:var(--text);
     font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
   }
-  .wrap{max-width:760px; margin:0 auto; padding:44px 20px 80px}
+  .wrap{max-width:900px; margin:0 auto; padding:44px 20px 80px}
   h1{font-size:22px; margin:0 0 4px; letter-spacing:-.01em}
   .sub{color:var(--muted); margin:0 0 28px}
   .sub code{color:var(--text); background:var(--panel); border:1px solid var(--border); border-radius:4px; padding:1px 6px}
@@ -34,6 +34,7 @@
     color:var(--text); padding:8px 10px; font:inherit;
   }
   input:focus,select:focus,textarea:focus{outline:none; border-color:var(--accent)}
+  input:disabled,select:disabled{opacity:.5}
   textarea{resize:vertical; min-height:64px}
   .row{display:flex; gap:14px; align-items:center; margin-top:16px; flex-wrap:wrap}
   button{
@@ -43,12 +44,14 @@
   button:hover:not(:disabled){filter:brightness(1.1)}
   button:disabled{opacity:.4; cursor:not-allowed}
   button.ghost{background:transparent; color:var(--muted); border:1px solid var(--border); font-weight:400}
-  button.ghost:hover{color:var(--text)}
+  button.ghost:hover:not(:disabled){color:var(--text)}
   .chk{display:flex; align-items:center; gap:8px; color:var(--muted); font-size:13px; cursor:pointer}
   .chk input{width:auto; accent-color:var(--accent)}
   .bar{height:8px; background:#21262d; border-radius:99px; overflow:hidden; margin:4px 0 10px}
   .bar>div{height:100%; width:0; background:var(--accent); border-radius:99px; transition:width .3s}
   .bar.indet>div{width:30% !important; animation:slide 1.2s ease-in-out infinite}
+  .bar.errbar>div{background:var(--err)}
+  .stage-err{color:var(--err)}
   @keyframes slide{0%{margin-left:-30%}100%{margin-left:100%}}
   .stage{color:var(--muted); font-size:13px; min-height:20px}
   .stage .num{color:var(--text); font-variant-numeric:tabular-nums}
@@ -60,9 +63,30 @@
     padding:10px 24px; border-radius:8px;
   }
   a.dl:hover{filter:brightness(1.1)}
+  a.dlghost{
+    display:inline-block; background:transparent; border:1px solid var(--border); color:var(--text);
+    text-decoration:none; font-weight:600; padding:10px 24px; border-radius:8px;
+  }
+  a.dlghost:hover{border-color:var(--accent); color:var(--accent)}
   .hint{color:var(--muted); font-size:12px; margin-top:10px}
-  .stats{color:var(--muted); margin:10px 0 16px}
+  .keyrow{display:flex; gap:8px}
+  .keyrow input{flex:1}
+  .mini{padding:6px 12px; font-size:12px; flex-shrink:0}
+  .stats{color:var(--muted); margin:10px 0 12px}
   footer{color:var(--muted); font-size:12px; margin-top:28px; text-align:center}
+  /* visor embebido */
+  .rowHead{display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap}
+  .seg{display:inline-flex; border:1px solid var(--border); border-radius:8px; overflow:hidden}
+  .segbtn{background:transparent; color:var(--muted); border:none; border-radius:0; padding:7px 16px; font-weight:600; font-size:13px}
+  .segbtn:hover:not(:disabled){filter:none}
+  .segbtn.active{background:var(--accent); color:#04121f}
+  .pager{display:flex; align-items:center; gap:10px; margin:12px 0; color:var(--muted); font-size:13px}
+  .pager input{width:64px; padding:4px 6px; text-align:center; font-size:13px}
+  .pager .mut b{color:var(--text)}
+  iframe#viewer{
+    width:100%; height:72vh; display:block; border:1px solid var(--border);
+    border-radius:8px; background:#0b0f14;
+  }
 </style>
 </head>
 <body>
@@ -83,19 +107,30 @@
       <div class="grid">
         <div>
           <label for="from">Idioma origen</label>
-          <select id="from"></select>
+          <select id="from"><option value="auto">Auto-detectar</option></select>
         </div>
         <div>
           <label for="to">Idioma destino</label>
           <select id="to"></select>
         </div>
         <div>
-          <label for="pages">Páginas (ej. 1-3,7 — vacío = todas)</label>
-          <input id="pages" placeholder="todas">
+          <label for="provider">Proveedor</label>
+          <select id="provider"></select>
         </div>
         <div>
           <label for="model">Modelo</label>
-          <input id="model" placeholder="">
+          <select id="model"></select>
+        </div>
+        <div style="grid-column:1/-1">
+          <label for="pages">Páginas (ej. 1-3,7 — vacío = todas)</label>
+          <input id="pages" placeholder="todas">
+        </div>
+        <div style="grid-column:1/-1">
+          <label id="keyLabel" for="key">API key</label>
+          <div class="keyrow">
+            <input id="key" type="text" placeholder="" autocomplete="off" spellcheck="false">
+            <button type="button" class="ghost mini hidden" id="forget" title="Borrar la key guardada de este navegador">✕ borrar</button>
+          </div>
         </div>
         <div style="grid-column:1/-1">
           <label for="glossary">Glosario (términos a NO traducir, uno por línea — opcional)</label>
@@ -108,6 +143,7 @@
         <label class="chk"><input type="checkbox" id="mock"> Modo demo (sin API: marca los textos con [ES])</label>
       </div>
       <p class="hint" id="hint"></p>
+      <div class="msg err" id="err"></div>
     </div>
   </div>
 
@@ -115,15 +151,32 @@
   <div id="progressPanel" class="panel hidden">
     <strong id="stage">Subiendo…</strong>
     <div class="bar indet" id="bar"><div></div></div>
-    <div class="msg err" id="err"></div>
+    <div class="msg err" id="jerr"></div>
+    <div class="row hidden" id="errActions">
+      <button class="ghost" id="back">Volver</button>
+    </div>
   </div>
 
-  <!-- Panel de resultado -->
+  <!-- Panel de resultado: visor embebido con switch traducido/original -->
   <div id="resultPanel" class="panel hidden">
-    <strong style="color:var(--ok)">✓ Traducción lista</strong>
+    <div class="rowHead">
+      <strong style="color:var(--ok)">✓ Traducción lista</strong>
+      <div class="seg" title="El switch conserva la página que estás viendo">
+        <button type="button" class="segbtn active" id="btnTr">Traducido</button>
+        <button type="button" class="segbtn" id="btnOr">Original</button>
+      </div>
+    </div>
     <p class="stats" id="stats"></p>
-    <a class="dl" id="dl" href="#">Descargar PDF traducido</a>
+    <div class="pager">
+      <button type="button" class="ghost mini" id="pgPrev" title="Página anterior">◀</button>
+      <span>pág <input id="pgNum" type="number" min="1" value="1"> / <span id="pgTotal">1</span></span>
+      <button type="button" class="ghost mini" id="pgNext" title="Página siguiente">▶</button>
+      <span class="mut">viendo: <b id="viewLabel">traducido</b></span>
+    </div>
+    <iframe id="viewer" title="Previsualización del PDF"></iframe>
     <div class="row">
+      <a class="dl" id="dl" href="#" download>⬇ Descargar traducido</a>
+      <a class="dlghost" id="dlOrig" href="#" download>⬇ Descargar original</a>
       <button class="ghost" id="again">Traducir otro PDF</button>
     </div>
   </div>
@@ -139,18 +192,95 @@ const STAGES = {
   translate: "Traduciendo",
   render:    "Reinsertando el texto en el layout original…",
 };
+const PROVIDER_LABELS = {
+  anthropic: "Anthropic",
+  openai: "OpenAI",
+  google: "Google Gemini",
+  deepseek: "DeepSeek",
+};
+const KEY_HINTS = { anthropic: "sk-ant-...", openai: "sk-...", google: "AIza...", deepseek: "sk-..." };
+const KEY_PREFIX = "pdftranslate.apikey.";
 let file = null, timer = null, jobId = null;
+let provider = "anthropic", apiKey = "";
+let viewMode = "tr", curPage = 1, totalPages = 1;
 
-// Metadatos: idiomas y modelo default
+// Migración: key vieja única → key por proveedor
+(() => {
+  const old = localStorage.getItem("pdftranslate.apikey");
+  if (old && !localStorage.getItem(KEY_PREFIX + "anthropic")) {
+    localStorage.setItem(KEY_PREFIX + "anthropic", old);
+    localStorage.removeItem("pdftranslate.apikey");
+  }
+})();
+
+// API key por proveedor en localStorage; en pantalla ofuscada (…últimos 4)
+const keyInput = $("#key");
+const keyStore = () => KEY_PREFIX + provider;
+
+function maskKey(k) {
+  if (!k) return "";
+  return k.length <= 12 ? "••••" + k.slice(-4) : k.slice(0, 7) + "…" + k.slice(-4);
+}
+function loadKey() { apiKey = localStorage.getItem(keyStore()) || ""; }
+function paintKey() {
+  keyInput.value = maskKey(apiKey);
+  keyInput.placeholder = apiKey ? "escribí una nueva para reemplazarla" : (KEY_HINTS[provider] || "");
+  $("#forget").classList.toggle("hidden", !apiKey);
+  $("#keyLabel").innerHTML =
+    `API key de ${PROVIDER_LABELS[provider] || provider} <span style="opacity:.7">(se guarda solo en tu navegador; para reemplazarla, escribí una nueva)</span>`;
+}
+keyInput.addEventListener("focus", () => {
+  if (keyInput.value === maskKey(apiKey) && keyInput.value) {
+    keyInput.type = "password";
+    keyInput.value = "";
+    keyInput.placeholder = "pegá tu nueva key (se guarda al salir del campo)";
+  }
+});
+keyInput.addEventListener("blur", () => {
+  keyInput.type = "text";
+  const v = keyInput.value.trim();
+  if (v) { apiKey = v; localStorage.setItem(keyStore(), v); }
+  paintKey();
+});
+$("#forget").onclick = e => {
+  e.stopPropagation();
+  apiKey = "";
+  localStorage.removeItem(keyStore());
+  keyInput.value = "";
+  paintKey();
+};
+loadKey();
+paintKey();
+
+// Metadatos: idiomas, proveedores y modelos
+let META = null;
 fetch("/api/meta").then(r => r.json()).then(m => {
-  const opts = Object.entries(m.languages)
+  META = m;
+  $("#provider").innerHTML = m.providers
+    .map(p => `<option value="${p.id}">${p.label}</option>`).join("");
+  fillModels();
+  const langOpts = Object.entries(m.languages)
     .map(([k, v]) => `<option value="${k}">${v} (${k})</option>`).join("");
-  $("#from").innerHTML = opts; $("#to").innerHTML = opts;
-  $("#from").value = "en"; $("#to").value = "es";
-  $("#model").placeholder = m.default_model;
+  $("#from").innerHTML = `<option value="auto">Auto-detectar</option>` + langOpts;
+  $("#to").innerHTML = langOpts;
+  $("#from").value = "auto"; $("#to").value = "es";
+  paintKey();
   $("#hint").textContent =
-    "Sin API key configurada usá el modo demo para probar el layout.";
+    "La key viaja solo con tus traducciones y no se registra en el server. Sin key, activá el modo demo.";
 }).catch(() => {});
+
+function fillModels() {
+  if (!META) return;
+  const list = META.models[provider] || [];
+  $("#model").innerHTML = list
+    .map(m => `<option value="${m.id}">${m.label}</option>`).join("");
+}
+$("#provider").onchange = e => {
+  provider = e.target.value;
+  fillModels();
+  loadKey();
+  paintKey();
+};
 
 // Dropzone
 const drop = $("#drop");
@@ -175,11 +305,37 @@ function setFile(f) {
 
 $("#go").onclick = start;
 $("#again").onclick = reset;
+$("#back").onclick = reset;
+$("#mock").onchange = e => {
+  const off = e.target.checked;
+  ["provider", "model", "key", "forget"].forEach(id => $("#" + id).disabled = off);
+};
 
 function esc(s) {
   return s.replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 }
 function showErr(msg) { $("#err").textContent = msg || ""; }
+
+// Traduce errores crudos de la API a mensajes accionables
+function prettyError(raw) {
+  const r = (raw || "").toString();
+  if (/credit balance|insufficient/i.test(r))
+    return "Tu cuenta del proveedor no tiene saldo suficiente: recargá créditos en su panel de billing.\n\n" + r;
+  if (/authentication|invalid api.?key|invalid x-api-key|unauthorized|unauthorised/i.test(r))
+    return "La API key no es válida. Revisá el campo de la key, o tocá ✕ borrar y pegá una nueva.\n\n" + r;
+  if (/rate.?limit/i.test(r))
+    return "Llegaste al límite de peticiones de la API. Esperá un rato y volvé a intentar.\n\n" + r;
+  if (/overloaded/i.test(r))
+    return "La API está temporalmente saturada. Probá de nuevo en unos minutos.\n\n" + r;
+  const m = r.match(/\{[\s\S]*\}/);
+  if (m) {
+    try {
+      const inner = JSON.parse(m[0]).error && JSON.parse(m[0]).error.message;
+      if (inner) return inner;
+    } catch {}
+  }
+  return r;
+}
 
 async function start() {
   showErr("");
@@ -187,10 +343,12 @@ async function start() {
   fd.append("file", file);
   fd.append("to", $("#to").value);
   fd.append("source", $("#from").value);
-  fd.append("model", $("#model").value.trim());
+  fd.append("provider", provider);
+  fd.append("model", $("#model").value);
   fd.append("pages", $("#pages").value.trim());
   fd.append("glossary", $("#glossary").value);
   fd.append("mock", $("#mock").checked);
+  fd.append("api_key", apiKey);
   $("#go").disabled = true;
   try {
     const r = await fetch("/api/translate", { method: "POST", body: fd });
@@ -233,28 +391,73 @@ async function poll() {
     $("#stage").textContent = "Listo";
     $("#progressPanel").classList.add("hidden");
     $("#dl").href = "/api/jobs/" + jobId + "/download";
+    $("#dlOrig").href = "/api/jobs/" + jobId + "/original";
     $("#stats").textContent = j.message;
+    totalPages = j.pages || 1;
+    viewMode = "tr";
+    curPage = 1;
+    showViewer();
     $("#resultPanel").classList.remove("hidden");
   } else if (j.status === "error") {
     fail(j.error || "Error desconocido");
   }
 }
 
-function fail(msg) {
+// ---- Visor embebido con switch traducido/original sincronizado por página ----
+
+function viewerURL(mode, page) {
+  // La query bustea el cache para que el #page= re-navegue; el server la ignora
+  const base = mode === "tr" ? `/api/jobs/${jobId}/download` : `/api/jobs/${jobId}/original`;
+  return `${base}?p=${page}&t=${Date.now()}#page=${page}`;
+}
+function showViewer() {
+  $("#viewer").src = viewerURL(viewMode, curPage);
+  $("#viewLabel").textContent = viewMode === "tr" ? "traducido" : "original";
+  $("#btnTr").classList.toggle("active", viewMode === "tr");
+  $("#btnOr").classList.toggle("active", viewMode === "or");
+  $("#pgNum").value = curPage;
+  $("#pgNum").max = totalPages;
+  $("#pgTotal").textContent = totalPages;
+}
+function gotoPage(p) {
+  curPage = Math.min(totalPages, Math.max(1, p || 1));
+  showViewer();
+}
+$("#btnTr").onclick = () => { if (viewMode !== "tr") { viewMode = "tr"; showViewer(); } };
+$("#btnOr").onclick = () => { if (viewMode !== "or") { viewMode = "or"; showViewer(); } };
+$("#pgPrev").onclick = () => gotoPage(curPage - 1);
+$("#pgNext").onclick = () => gotoPage(curPage + 1);
+$("#pgNum").onchange = () => gotoPage(parseInt($("#pgNum").value, 10));
+
+function fail(rawMsg) {
   clearInterval(timer);
-  $("#progressPanel").classList.add("hidden");
-  $("#uploadPanel").classList.remove("hidden");
-  showErr(msg);
-  $("#go").disabled = !file;
+  const bar = $("#bar");
+  bar.classList.remove("indet");
+  bar.classList.add("errbar");
+  bar.firstElementChild.style.width = "100%";
+  const stage = $("#stage");
+  stage.textContent = "✗ Error";
+  stage.classList.add("stage-err");
+  $("#jerr").textContent = prettyError(rawMsg);
+  $("#errActions").classList.remove("hidden");
 }
 
 function reset() {
   $("#resultPanel").classList.add("hidden");
+  $("#viewer").src = "about:blank";
+  $("#errActions").classList.add("hidden");
+  $("#jerr").textContent = "";
+  const bar = $("#bar");
+  bar.classList.remove("errbar");
+  bar.classList.add("indet");
+  bar.firstElementChild.style.width = "0";
+  const stage = $("#stage");
+  stage.textContent = "En cola…";
+  stage.classList.remove("stage-err");
+  $("#progressPanel").classList.add("hidden");
   $("#uploadPanel").classList.remove("hidden");
-  $("#bar").classList.add("indet");
-  $("#bar").firstElementChild.style.width = "0";
   showErr("");
-  $("#go").disabled = false;
+  $("#go").disabled = !file;
 }
 </script>
 </body>
