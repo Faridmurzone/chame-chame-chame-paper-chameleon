@@ -1,3 +1,4 @@
+import hashlib
 import io
 import os
 import tempfile
@@ -15,6 +16,17 @@ from pdf_translator.web import app
 @pytest.fixture
 def client():
     return TestClient(app)
+
+
+@pytest.fixture
+def fake_api(client, monkeypatch):
+    """Corre el pipeline real con un traductor falso: no toca ninguna API."""
+    from pdf_translator.translate import MockTranslator
+    import pdf_translator.web as web
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setattr(web, "make_translator", lambda **kw: MockTranslator())
+    return client
 
 
 def _pdf_bytes() -> bytes:
@@ -70,21 +82,21 @@ def test_meta(client):
     assert data["models"]["deepseek"][0]["id"] == "deepseek-chat"
 
 
-def test_translate_flow_mock(client):
-    r = client.post(
+def test_translate_flow(fake_api):
+    r = fake_api.post(
         "/api/translate",
-        data={"mock": "true", "to": "es"},
+        data={"to": "es"},
         files={"file": ("paper.pdf", _pdf_bytes(), "application/pdf")},
     )
     assert r.status_code == 200
     job_id = r.json()["job_id"]
 
-    data = _wait_done(client, job_id)
+    data = _wait_done(fake_api, job_id)
     assert data["status"] == "done", data
     assert data["stage"] == "done"
     assert "traducidos" in data["message"]
 
-    dl = client.get(f"/api/jobs/{job_id}/download")
+    dl = fake_api.get(f"/api/jobs/{job_id}/download")
     assert dl.status_code == 200
     assert dl.headers["content-type"] == "application/pdf"
     doc = fitz.open(stream=dl.content, filetype="pdf")
@@ -92,28 +104,28 @@ def test_translate_flow_mock(client):
     doc.close()
 
 
-def test_job_status_hides_internal_fields(client):
-    r = client.post(
+def test_job_status_hides_internal_fields(fake_api):
+    r = fake_api.post(
         "/api/translate",
-        data={"mock": "true"},
+        data={},
         files={"file": ("paper.pdf", _pdf_bytes(), "application/pdf")},
     )
     job_id = r.json()["job_id"]
-    data = _wait_done(client, job_id)
+    data = _wait_done(fake_api, job_id)
     assert "output" not in data and "created" not in data
     # pages llega para el pager del visor
     assert data["pages"] == 1
 
 
-def test_original_download(client):
-    r = client.post(
+def test_original_download(fake_api):
+    r = fake_api.post(
         "/api/translate",
-        data={"mock": "true"},
+        data={},
         files={"file": ("paper.pdf", _pdf_bytes(), "application/pdf")},
     )
     job_id = r.json()["job_id"]
-    _wait_done(client, job_id)
-    orig = client.get(f"/api/jobs/{job_id}/original")
+    _wait_done(fake_api, job_id)
+    orig = fake_api.get(f"/api/jobs/{job_id}/original")
     assert orig.status_code == 200
     assert orig.headers["content-type"] == "application/pdf"
     assert "inline" in orig.headers["content-disposition"]
@@ -125,7 +137,7 @@ def test_original_download(client):
 def test_rejects_non_pdf(client):
     r = client.post(
         "/api/translate",
-        data={"mock": "true"},
+        data={},
         files={"file": ("x.txt", b"nope", "text/plain")},
     )
     assert r.status_code == 400
@@ -134,7 +146,7 @@ def test_rejects_non_pdf(client):
 def test_rejects_corrupt_pdf(client):
     r = client.post(
         "/api/translate",
-        data={"mock": "true"},
+        data={},
         files={"file": ("x.pdf", b"esto no es un pdf", "application/pdf")},
     )
     assert r.status_code == 400
@@ -143,7 +155,7 @@ def test_rejects_corrupt_pdf(client):
 def test_rejects_bad_pages_spec(client):
     r = client.post(
         "/api/translate",
-        data={"mock": "true", "pages": "abc"},
+        data={"pages": "abc"},
         files={"file": ("paper.pdf", _pdf_bytes(), "application/pdf")},
     )
     assert r.status_code == 400
@@ -170,52 +182,76 @@ def _unique_pdf_bytes(tag: str) -> bytes:
     return buf.getvalue()
 
 
-def test_history_dedup_and_delete(client):
+def test_history_dedup_and_delete(fake_api):
     data = _unique_pdf_bytes(f"{time.time()}")
-    r1 = client.post(
+    r1 = fake_api.post(
         "/api/translate",
-        data={"mock": "true", "to": "es"},
+        data={"to": "es"},
         files={"file": ("hist.pdf", data, "application/pdf")},
     )
     job_id = r1.json()["job_id"]
-    _wait_done(client, job_id)
+    _wait_done(fake_api, job_id)
 
     # El historial lo lista
-    hist = client.get("/api/history").json()
+    hist = fake_api.get("/api/history").json()
     entry = next((h for h in hist if h["id"] == job_id), None)
     assert entry is not None
     assert entry["filename"] == "hist.pdf"
     assert entry["to"] == "es" and entry["pages"] == 1
 
     # Re-subir el mismo archivo → dedup: mismo job, sin re-traducir
-    r2 = client.post(
+    r2 = fake_api.post(
         "/api/translate",
-        data={"mock": "true", "to": "es"},
+        data={"to": "es"},
         files={"file": ("hist.pdf", data, "application/pdf")},
     )
     assert r2.json() == {"job_id": job_id, "dedup": "true"}
 
     # Otro idioma destino → NO dedup (traducción distinta)
-    r3 = client.post(
+    r3 = fake_api.post(
         "/api/translate",
-        data={"mock": "true", "to": "fr"},
+        data={"to": "fr"},
         files={"file": ("hist.pdf", data, "application/pdf")},
     )
     assert "dedup" not in r3.json()
-    _wait_done(client, r3.json()["job_id"])
+    _wait_done(fake_api, r3.json()["job_id"])
 
     # Borrar del historial: desaparece y el job queda 404
-    assert client.delete(f"/api/jobs/{job_id}").json() == {"ok": True}
-    assert client.get(f"/api/jobs/{job_id}").status_code == 404
-    hist = client.get("/api/history").json()
+    assert fake_api.delete(f"/api/jobs/{job_id}").json() == {"ok": True}
+    assert fake_api.get(f"/api/jobs/{job_id}").status_code == 404
+    hist = fake_api.get("/api/history").json()
     assert all(h["id"] != job_id for h in hist)
+
+
+def test_dedup_ignores_old_demo_jobs(client, monkeypatch):
+    """Un job demo (mock) viejo no se lista ni se sirve como traducción real."""
+    import pdf_translator.web as web
+
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    payload = _unique_pdf_bytes(f"demo-legacy-{time.time()}")
+    with web._lock:
+        web._jobs["deadbeef"] = {
+            "id": "deadbeef", "filename": "viejo.pdf", "status": "done",
+            "mock": True, "to": "es",
+            "hash": hashlib.sha256(payload).hexdigest(),
+            "created": time.time(),
+        }
+    hist = client.get("/api/history").json()
+    assert all(h["id"] != "deadbeef" for h in hist)
+    r = client.post(
+        "/api/translate", data={"to": "es"},
+        files={"file": ("nuevo.pdf", payload, "application/pdf")},
+    )
+    assert "dedup" not in r.json()
+    with web._lock:
+        web._jobs.pop("deadbeef", None)
 
 
 def test_missing_api_key_friendly_error(client, monkeypatch):
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     r = client.post(
         "/api/translate",
-        data={"to": "es"},  # sin mock y sin api_key
+        data={"to": "es"},  # sin api_key en env ni en el form
         files={"file": ("paper.pdf", _pdf_bytes(), "application/pdf")},
     )
     assert r.status_code == 200

@@ -169,28 +169,23 @@ def _run(
         _update(job_id, stage=stage, current=current, total=total)
 
     try:
-        if opts["mock"]:
-            from .translate import MockTranslator
-
-            translator = MockTranslator()
-        else:
-            provider = opts["provider"]
-            env_var = PROVIDER_ENV[provider]
-            # Prioridad: key de la UI > variable de entorno. Nunca se guarda en el job.
-            api_key = (opts.get("api_key") or "").strip() or os.environ.get(env_var)
-            if not api_key:
-                raise RuntimeError(
-                    f"Falta la API key de {PROVIDER_LABELS[provider]}: ingresala en la UI "
-                    f"(o exportá {env_var}, o usá el modo demo)."
-                )
-            translator = make_translator(
-                provider=provider,
-                model=opts["model"] or None,
-                source_lang=opts["source_name"],
-                target_lang=LANG_NAMES.get(opts["to"], opts["to"]),
-                glossary=opts["glossary"],
-                api_key=api_key,
+        provider = opts["provider"]
+        env_var = PROVIDER_ENV[provider]
+        # Prioridad: key de la UI > variable de entorno. Nunca se guarda en el job.
+        api_key = (opts.get("api_key") or "").strip() or os.environ.get(env_var)
+        if not api_key:
+            raise RuntimeError(
+                f"Falta la API key de {PROVIDER_LABELS[provider]}: ingresala en la UI "
+                f"(o exportá {env_var})."
             )
+        translator = make_translator(
+            provider=provider,
+            model=opts["model"] or None,
+            source_lang=opts["source_name"],
+            target_lang=LANG_NAMES.get(opts["to"], opts["to"]),
+            glossary=opts["glossary"],
+            api_key=api_key,
+        )
         stats = translate_pdf(
             str(input_path),
             str(output_path),
@@ -224,7 +219,6 @@ async def translate(
     model: str = Form(""),
     pages: str = Form(""),
     glossary: str = Form(""),
-    mock: bool = Form(False),
     api_key: str = Form(""),
 ) -> dict[str, str]:
     _cleanup_old_jobs()
@@ -243,14 +237,15 @@ async def translate(
         raise HTTPException(400, "Páginas inválidas: usá el formato '1-3,7'.") from None
     glossary_terms = [ln.strip() for ln in glossary.splitlines() if ln.strip()]
 
-    # Dedup: si este mismo archivo ya se tradujo (mismo destino y modo), reutilizamos
+    # Dedup: si este mismo archivo ya se tradujo al mismo destino, reutilizamos.
+    # Los jobs demo viejos (mock) nunca se sirven como traducción real.
     file_hash = hashlib.sha256(data).hexdigest()
     _hydrate_history()
     with _lock:
         existing = next(
             (j["id"] for j in _jobs.values()
              if j.get("hash") == file_hash and j.get("status") == "done"
-             and j.get("to") == to and bool(j.get("mock")) == mock),
+             and j.get("to") == to and not j.get("mock")),
             None,
         )
     if existing:
@@ -294,12 +289,10 @@ async def translate(
             "to": to,
             "provider": provider,
             "model": model.strip(),
-            "mock": mock,
             "hash": file_hash,
             "created": time.time(),
         }
     opts = {
-        "mock": mock,
         "provider": provider,
         "model": model.strip(),
         "source": source,
@@ -349,7 +342,10 @@ def job_original(job_id: str) -> FileResponse:
 def history() -> list[dict[str, Any]]:
     _hydrate_history()
     with _lock:
-        done = [dict(j) for j in _jobs.values() if j.get("status") == "done"]
+        done = [
+            dict(j) for j in _jobs.values()
+            if j.get("status") == "done" and not j.get("mock")
+        ]
     items = [
         {
             "id": j["id"],

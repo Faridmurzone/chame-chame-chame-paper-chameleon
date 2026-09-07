@@ -172,7 +172,6 @@
 
       <div class="row">
         <button id="go" disabled>Traducir</button>
-        <label class="chk"><input type="checkbox" id="mock"> Modo demo (sin API: marca los textos con [ES])</label>
       </div>
       <p class="hint" id="hint"></p>
       <div class="msg err" id="err"></div>
@@ -310,7 +309,7 @@ fetch("/api/meta").then(r => r.json()).then(m => {
   $("#from").value = "auto"; $("#to").value = "es";
   paintKey();
   $("#hint").textContent =
-    "La key viaja solo con tus traducciones y no se registra en el server. Sin key, activá el modo demo.";
+    "La key viaja solo con tus traducciones y no se registra en el server.";
 }).catch(() => {});
 
 function fillModels() {
@@ -350,10 +349,6 @@ function setFile(f) {
 $("#go").onclick = start;
 $("#again").onclick = reset;
 $("#back").onclick = reset;
-$("#mock").onchange = e => {
-  const off = e.target.checked;
-  ["provider", "model", "key", "forget"].forEach(id => $("#" + id).disabled = off);
-};
 
 function esc(s) {
   return s.replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -391,7 +386,6 @@ async function start() {
   fd.append("model", $("#model").value);
   fd.append("pages", $("#pages").value.trim());
   fd.append("glossary", $("#glossary").value);
-  fd.append("mock", $("#mock").checked);
   fd.append("api_key", apiKey);
   $("#go").disabled = true;
   try {
