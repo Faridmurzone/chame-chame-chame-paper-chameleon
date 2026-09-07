@@ -25,8 +25,9 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 
 from .cli import LANG_NAMES, _parse_pages
+from .lang_detect import detect_document_language
 from .pipeline import translate_pdf
-from .translate import DEFAULT_MODEL, ClaudeTranslator, MockTranslator
+from .translate import PROVIDER_ENV, make_translator
 
 STATIC_DIR = Path(__file__).parent / "static"
 JOBS_DIR = Path(
@@ -34,6 +35,37 @@ JOBS_DIR = Path(
 )
 MAX_UPLOAD = 200 * 1024 * 1024  # 200 MB
 JOB_TTL = 48 * 3600  # los trabajos y sus archivos viven 48 h
+
+PROVIDER_LABELS = {
+    "anthropic": "Anthropic",
+    "openai": "OpenAI",
+    "google": "Google Gemini",
+    "deepseek": "DeepSeek",
+}
+
+# Modelos curados por proveedor, aptos para traducción de papers con salida JSON.
+# El primero de cada lista es el default del proveedor.
+MODEL_CATALOG: dict[str, list[dict[str, str]]] = {
+    "anthropic": [
+        {"id": "claude-opus-5", "label": "Claude Opus 5 — máxima calidad"},
+        {"id": "claude-sonnet-4-5", "label": "Claude Sonnet 4.5 — balance"},
+        {"id": "claude-haiku-4-5", "label": "Claude Haiku 4.5 — rápido y económico"},
+    ],
+    "openai": [
+        {"id": "gpt-5.1", "label": "GPT-5.1"},
+        {"id": "gpt-5.1-mini", "label": "GPT-5.1 mini — económico"},
+        {"id": "gpt-4.1", "label": "GPT-4.1 — largo contexto"},
+    ],
+    "google": [
+        {"id": "gemini-3-pro-preview", "label": "Gemini 3 Pro (preview)"},
+        {"id": "gemini-2.5-pro", "label": "Gemini 2.5 Pro"},
+        {"id": "gemini-2.5-flash", "label": "Gemini 2.5 Flash — rápido y económico"},
+    ],
+    "deepseek": [
+        {"id": "deepseek-chat", "label": "DeepSeek V3 (chat)"},
+        {"id": "deepseek-reasoner", "label": "DeepSeek R1 (reasoner)"},
+    ],
+}
 
 app = FastAPI(title="pdf-translator", docs_url=None, redoc_url=None)
 
@@ -83,18 +115,26 @@ def _run(
 
     try:
         if opts["mock"]:
+            from .translate import MockTranslator
+
             translator = MockTranslator()
         else:
-            if not os.environ.get("ANTHROPIC_API_KEY"):
+            provider = opts["provider"]
+            env_var = PROVIDER_ENV[provider]
+            # Prioridad: key de la UI > variable de entorno. Nunca se guarda en el job.
+            api_key = (opts.get("api_key") or "").strip() or os.environ.get(env_var)
+            if not api_key:
                 raise RuntimeError(
-                    "Falta la variable de entorno ANTHROPIC_API_KEY "
-                    "(o usá el modo demo sin API)."
+                    f"Falta la API key de {PROVIDER_LABELS[provider]}: ingresala en la UI "
+                    f"(o exportá {env_var}, o usá el modo demo)."
                 )
-            translator = ClaudeTranslator(
-                model=opts["model"] or DEFAULT_MODEL,
-                source_lang=LANG_NAMES.get(opts["source"], opts["source"]),
+            translator = make_translator(
+                provider=provider,
+                model=opts["model"] or None,
+                source_lang=opts["source_name"],
                 target_lang=LANG_NAMES.get(opts["to"], opts["to"]),
                 glossary=opts["glossary"],
+                api_key=api_key,
             )
         stats = translate_pdf(
             str(input_path),
@@ -122,11 +162,13 @@ def _run(
 async def translate(
     file: UploadFile = File(...),
     to: str = Form("es"),
-    source: str = Form("en"),
+    source: str = Form("auto"),
+    provider: str = Form("anthropic"),
     model: str = Form(""),
     pages: str = Form(""),
     glossary: str = Form(""),
     mock: bool = Form(False),
+    api_key: str = Form(""),
 ) -> dict[str, str]:
     _cleanup_old_jobs()
     name = file.filename or ""
@@ -137,6 +179,7 @@ async def translate(
         raise HTTPException(400, "El archivo está vacío.")
     if len(data) > MAX_UPLOAD:
         raise HTTPException(413, f"El PDF supera el límite de {MAX_UPLOAD // (1024 * 1024)} MB.")
+    provider = provider if provider in MODEL_CATALOG else "anthropic"
     try:
         page_indexes = _parse_pages(pages) if pages.strip() else None
     except (ValueError, TypeError):
@@ -150,11 +193,17 @@ async def translate(
     input_path.write_bytes(data)
     try:
         doc = fitz.open(str(input_path))
-        doc.page_count
+        page_count = doc.page_count
         doc.close()
     except Exception:
         shutil.rmtree(job_dir, ignore_errors=True)
         raise HTTPException(400, "El PDF no se pudo abrir: parece corrupto o ilegible.") from None
+
+    # Resolución del idioma origen: "auto" detecta desde el PDF
+    if source == "auto":
+        source_name = detect_document_language(str(input_path))
+    else:
+        source_name = LANG_NAMES.get(source, source)
 
     out_name = f"{Path(name).stem}.{to}.pdf"
     output_path = job_dir / out_name
@@ -170,15 +219,20 @@ async def translate(
             "error": None,
             "out_name": out_name,
             "output": None,
+            "pages": page_count,
+            "source_name": source_name,
             "created": time.time(),
         }
     opts = {
         "mock": mock,
+        "provider": provider,
         "model": model.strip(),
         "source": source,
+        "source_name": source_name,
         "to": to,
         "glossary": glossary_terms,
         "pages": page_indexes,
+        "api_key": api_key.strip(),
     }
     threading.Thread(target=_run, args=(job_id, input_path, output_path, opts), daemon=True).start()
     return {"job_id": job_id}
@@ -198,12 +252,38 @@ def job_download(job_id: str) -> FileResponse:
     path = Path(job["output"])
     if not path.exists():
         raise HTTPException(404, "El archivo ya no existe (expiró).")
-    return FileResponse(path, media_type="application/pdf", filename=job["out_name"])
+    return FileResponse(
+        path, media_type="application/pdf", filename=job["out_name"],
+        content_disposition_type="inline",
+    )
+
+
+@app.get("/api/jobs/{job_id}/original")
+def job_original(job_id: str) -> FileResponse:
+    job = _snapshot(job_id)
+    path = JOBS_DIR / job_id / "input.pdf"
+    if not path.exists():
+        raise HTTPException(404, "El PDF original ya no existe (expiró).")
+    return FileResponse(
+        path, media_type="application/pdf", filename=job["filename"],
+        content_disposition_type="inline",
+    )
 
 
 @app.get("/api/meta")
 def meta() -> dict[str, Any]:
-    return {"languages": LANG_NAMES, "default_model": DEFAULT_MODEL}
+    models = {
+        provider: [
+            {**m, "default": i == 0}
+            for i, m in enumerate(catalog)
+        ]
+        for provider, catalog in MODEL_CATALOG.items()
+    }
+    return {
+        "languages": LANG_NAMES,
+        "providers": [{"id": p, "label": PROVIDER_LABELS[p]} for p in MODEL_CATALOG],
+        "models": models,
+    }
 
 
 @app.get("/", include_in_schema=False)

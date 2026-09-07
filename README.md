@@ -10,16 +10,31 @@ pdf-translate paper.pdf --to es
 ```
 
 También tiene **interfaz web**: subís el PDF desde el navegador, seguís el progreso
-en vivo y descargás el resultado.
+en vivo, comparás el resultado contra el original en un visor embebido (con switch
+traducido/original que conserva la página) y descargás ambos PDFs.
 
 ```bash
-pip install -e ".[web]"
+pip install -e ".[web,providers]"
 pdf-translate-web          # → http://127.0.0.1:8000
 ```
 
 La página (en `pdf_translator/static/index.html`) es self-contained: sin build ni
 frameworks, tema oscuro. El backend expone `POST /api/translate`,
-`GET /api/jobs/{id}` (progreso por etapa y bloque) y `GET /api/jobs/{id}/download`.
+`GET /api/jobs/{id}` (progreso por etapa y bloque), `GET /api/jobs/{id}/download`
+(traducido), `GET /api/jobs/{id}/original` y `GET /api/meta`.
+
+La API key se ingresa en la UI (queda solo en el `localStorage` del navegador,
+mostrada ofuscada) o se exporta como variable de entorno:
+
+| Proveedor | Modelos | Variable de entorno |
+|---|---|---|
+| Anthropic | `claude-opus-5`, `claude-sonnet-4-5`, `claude-haiku-4-5` | `ANTHROPIC_API_KEY` |
+| OpenAI | `gpt-5.1`, `gpt-5.1-mini`, `gpt-4.1` | `OPENAI_API_KEY` |
+| Google Gemini | `gemini-3-pro-preview`, `gemini-2.5-pro`, `gemini-2.5-flash` | `GOOGLE_API_KEY` |
+| DeepSeek | `deepseek-chat`, `deepseek-reasoner` | `DEEPSEEK_API_KEY` |
+
+El idioma origen admite **autodetección** (`--source auto` en CLI, "Auto-detectar"
+en la UI): muestrea las primeras páginas con langdetect.
 
 ## Cómo funciona
 

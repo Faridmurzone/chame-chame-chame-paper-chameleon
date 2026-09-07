@@ -34,7 +34,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("input", help="PDF de entrada")
     parser.add_argument("-o", "--output", help="PDF de salida (default: <entrada>.<lang>.pdf)")
     parser.add_argument("--to", default="es", help="Idioma destino (default: es)")
-    parser.add_argument("--source", default="en", help="Idioma origen (default: en)")
+    parser.add_argument("--source", default="en", help="Idioma origen ('auto' lo detecta; default: en)")
     parser.add_argument("--model", default=None, help="Modelo de Claude a usar")
     parser.add_argument("--glossary", help="Archivo con términos (uno por línea) a NO traducir")
     parser.add_argument("--pages", help="Páginas a traducir, ej. '1-3,7' (default: todas)")
@@ -54,8 +54,18 @@ def main(argv: list[str] | None = None) -> int:
         from .translate import MockTranslator
 
         translator = MockTranslator()
+        source_name = LANG_NAMES.get(args.source, args.source)
     else:
         from .translate import DEFAULT_MODEL, ClaudeTranslator
+
+        if args.source == "auto":
+            from .lang_detect import detect_document_language
+
+            source_name = detect_document_language(str(input_path))
+            if not args.quiet:
+                print(f"Idioma origen detectado: {source_name}", file=sys.stderr)
+        else:
+            source_name = LANG_NAMES.get(args.source, args.source)
 
         glossary = None
         if args.glossary:
@@ -66,7 +76,7 @@ def main(argv: list[str] | None = None) -> int:
             ]
         translator = ClaudeTranslator(
             model=args.model or DEFAULT_MODEL,
-            source_lang=LANG_NAMES.get(args.source, args.source),
+            source_lang=source_name,
             target_lang=LANG_NAMES.get(args.to, args.to),
             glossary=glossary,
             verbose=not args.quiet,
