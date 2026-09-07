@@ -90,6 +90,36 @@ def test_batch_keeps_originals_on_invalid_json(monkeypatch):
     assert seg.translation == "Hello world."  # se conserva el original
 
 
+def test_anthropic_falls_back_when_sdk_lacks_fallbacks():
+    """SDK viejo (sin kwarg fallbacks): cae a messages.create plano y traduce igual."""
+    from types import SimpleNamespace
+
+    from pdf_translator.segments import Segment
+
+    t = AnthropicTranslator(api_key="x", verbose=False)
+    calls = []
+
+    def beta_create(**kw):
+        calls.append("beta")
+        raise TypeError("unexpected keyword argument 'fallbacks'")
+
+    def plain_create(**kw):
+        calls.append("plain")
+        return SimpleNamespace(
+            stop_reason="end_turn",
+            content=[SimpleNamespace(text='{"translations": [{"id": 0, "text": "hola"}]}')],
+        )
+
+    t.client = SimpleNamespace(
+        beta=SimpleNamespace(messages=SimpleNamespace(create=beta_create)),
+        messages=SimpleNamespace(create=plain_create),
+    )
+    seg = Segment(id=0, page=0, bbox=(0, 0, 1, 1), text="Hello.")
+    t.translate([seg])
+    assert calls == ["beta", "plain"]
+    assert seg.translation == "hola"
+
+
 def test_batch_progress_and_mock():
     calls = []
     m = MockTranslator(progress_cb=lambda done, total: calls.append((done, total)))

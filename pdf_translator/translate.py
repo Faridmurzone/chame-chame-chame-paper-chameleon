@@ -217,7 +217,18 @@ class AnthropicTranslator(BaseBatchTranslator):
         )
 
     def _call(self, payload: str) -> str:
-        response = self.client.beta.messages.create(
+        try:
+            response = self._call_with_fallbacks(payload)
+        except TypeError:
+            # SDK sin server-side fallbacks / output_config (versiones viejas):
+            # llamada plana; el parseo tolerante de JSON cubre la diferencia.
+            response = self._call_plain(payload)
+        if response.stop_reason == "refusal":
+            raise RefusalError
+        return next(b.text for b in response.content if b.type == "text")
+
+    def _call_with_fallbacks(self, payload: str):
+        return self.client.beta.messages.create(
             model=self.model,
             max_tokens=16000,
             betas=["server-side-fallback-2026-07-01"],
@@ -226,9 +237,14 @@ class AnthropicTranslator(BaseBatchTranslator):
             output_config={"format": {"type": "json_schema", "schema": SCHEMA}},
             messages=[{"role": "user", "content": payload}],
         )
-        if response.stop_reason == "refusal":
-            raise RefusalError
-        return next(b.text for b in response.content if b.type == "text")
+
+    def _call_plain(self, payload: str):
+        return self.client.messages.create(
+            model=self.model,
+            max_tokens=16000,
+            system=self.system,
+            messages=[{"role": "user", "content": payload}],
+        )
 
 
 class OpenAICompatibleTranslator(BaseBatchTranslator):
