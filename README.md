@@ -10,8 +10,10 @@ pdf-translate paper.pdf --to es
 ```
 
 También tiene **interfaz web**: subís el PDF desde el navegador, seguís el progreso
-en vivo, comparás el resultado contra el original en un visor embebido (con switch
-traducido/original que conserva la página) y descargás ambos PDFs.
+en vivo, comparás el resultado contra el original en un visor embebido (switch
+traducido/original que conserva la página y la posición de scroll, zoom, miniaturas)
+y descargás ambos PDFs. El **historial persiste**: los mismos PDFs no se vuelven a
+traducir (dedup por contenido) y podés reabrir, descargar o borrar cada traducción.
 
 ```bash
 pip install -e ".[web,providers]"
@@ -19,9 +21,14 @@ pdf-translate-web          # → http://127.0.0.1:8000
 ```
 
 La página (en `pdf_translator/static/index.html`) es self-contained: sin build ni
-frameworks, tema oscuro. El backend expone `POST /api/translate`,
-`GET /api/jobs/{id}` (progreso por etapa y bloque), `GET /api/jobs/{id}/download`
-(traducido), `GET /api/jobs/{id}/original` y `GET /api/meta`.
+frameworks, tema oscuro. El visor usa pdf.js por CDN y cae al visor nativo del
+navegador si no hay conexión. El backend expone `POST /api/translate`,
+`GET /api/jobs/{id}`, `GET /api/jobs/{id}/download`, `GET /api/jobs/{id}/original`,
+`GET /api/history`, `DELETE /api/jobs/{id}` y `GET /api/meta`.
+
+Los PDFs y sus metadatos persisten en `~/.pdf-translator/jobs`
+(configurable con `PDF_TRANSLATE_DATA_DIR`). Los trabajos completados no expiran:
+se borran desde el historial de la UI; los incompletos se limpian a las 48 h.
 
 La API key se ingresa en la UI (queda solo en el `localStorage` del navegador,
 mostrada ofuscada) o se exporta como variable de entorno:

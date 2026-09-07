@@ -5,15 +5,23 @@
 o directamente con uvicorn: uvicorn pdf_translator.web:app
 
 API:
-    POST /api/translate          — sube el PDF y encola el job (multipart/form-data)
+    POST /api/translate          — sube el PDF y encola el job (multipart/form-data);
+                                   si el mismo archivo ya fue traducido, reutiliza el job
     GET  /api/jobs/{id}          — estado y progreso del job
     GET  /api/jobs/{id}/download — PDF traducido
-    GET  /api/meta               — idiomas soportados y modelo default
+    GET  /api/jobs/{id}/original — PDF original
+    GET  /api/history            — historial de traducciones completadas
+    DELETE /api/jobs/{id}        — borra un job del historial
+    GET  /api/meta               — idiomas, proveedores y catálogo de modelos
+
+Los PDFs y metadatos persisten en ~/.pdf-translator/jobs (configurable con
+PDF_TRANSLATE_DATA_DIR); los jobs completados no expiran, se borran a mano.
 """
 
+import hashlib
+import json
 import os
 import shutil
-import tempfile
 import threading
 import time
 import uuid
@@ -30,11 +38,12 @@ from .pipeline import translate_pdf
 from .translate import PROVIDER_ENV, make_translator
 
 STATIC_DIR = Path(__file__).parent / "static"
-JOBS_DIR = Path(
-    os.environ.get("PDF_TRANSLATE_JOBS_DIR") or Path(tempfile.gettempdir()) / "pdf-translate-jobs"
-)
+DATA_DIR = Path(os.environ.get("PDF_TRANSLATE_DATA_DIR") or Path.home() / ".pdf-translator")
+JOBS_DIR = DATA_DIR / "jobs"
+JOBS_DIR.mkdir(parents=True, exist_ok=True)
+META_FILE = "meta.json"
 MAX_UPLOAD = 200 * 1024 * 1024  # 200 MB
-JOB_TTL = 48 * 3600  # los trabajos y sus archivos viven 48 h
+JOB_TTL = 48 * 3600  # los jobs INCOMPLETOS se borran tras 48 h; los done persisten
 
 PROVIDER_LABELS = {
     "anthropic": "Anthropic",
@@ -87,6 +96,42 @@ def _snapshot(job_id: str) -> dict[str, Any]:
         return dict(job)
 
 
+def _save_meta(job_id: str) -> None:
+    with _lock:
+        job = _jobs.get(job_id)
+        snapshot = dict(job) if job else None
+    if snapshot is None:
+        return
+    try:
+        (JOBS_DIR / job_id / META_FILE).write_text(
+            json.dumps(snapshot), encoding="utf-8"
+        )
+    except OSError:
+        pass
+
+
+def _load_meta(job_id: str) -> dict[str, Any] | None:
+    try:
+        return json.loads((JOBS_DIR / job_id / META_FILE).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
+def _hydrate_history() -> None:
+    """Carga al arranque los jobs done del disco (historial persistente)."""
+    try:
+        entries = list(JOBS_DIR.iterdir())
+    except OSError:
+        return
+    for path in entries:
+        if not path.is_dir():
+            continue
+        meta = _load_meta(path.name)
+        if meta and meta.get("status") == "done":
+            with _lock:
+                _jobs.setdefault(path.name, meta)
+
+
 def _cleanup_old_jobs() -> None:
     now = time.time()
     try:
@@ -94,13 +139,21 @@ def _cleanup_old_jobs() -> None:
     except OSError:
         entries = []
     for path in entries:
+        if not path.is_dir():
+            continue
+        meta = _load_meta(path.name)
+        if meta and meta.get("status") == "done":
+            continue  # completado: persiste hasta borrarse a mano
         try:
             if now - path.stat().st_mtime > JOB_TTL:
                 shutil.rmtree(path, ignore_errors=True)
         except OSError:
             pass
     with _lock:
-        for jid in [j for j, job in _jobs.items() if now - job["created"] > JOB_TTL]:
+        for jid in [
+            j for j, job in _jobs.items()
+            if job.get("status") != "done" and now - job.get("created", 0) > JOB_TTL
+        ]:
             _jobs.pop(jid, None)
 
 
@@ -154,8 +207,10 @@ def _run(
                 f"{stats['skipped']} preservados (fórmulas, código, números, imágenes)"
             ),
         )
+        _save_meta(job_id)
     except Exception as e:  # noqa: BLE001 — el error viaja al frontend
         _update(job_id, status="error", error=str(e))
+        _save_meta(job_id)
 
 
 @app.post("/api/translate")
@@ -185,6 +240,19 @@ async def translate(
     except (ValueError, TypeError):
         raise HTTPException(400, "Páginas inválidas: usá el formato '1-3,7'.") from None
     glossary_terms = [ln.strip() for ln in glossary.splitlines() if ln.strip()]
+
+    # Dedup: si este mismo archivo ya se tradujo (mismo destino y modo), reutilizamos
+    file_hash = hashlib.sha256(data).hexdigest()
+    _hydrate_history()
+    with _lock:
+        existing = next(
+            (j["id"] for j in _jobs.values()
+             if j.get("hash") == file_hash and j.get("status") == "done"
+             and j.get("to") == to and bool(j.get("mock")) == mock),
+            None,
+        )
+    if existing:
+        return {"job_id": existing, "dedup": "true"}
 
     job_id = uuid.uuid4().hex[:12]
     job_dir = JOBS_DIR / job_id
@@ -221,6 +289,11 @@ async def translate(
             "output": None,
             "pages": page_count,
             "source_name": source_name,
+            "to": to,
+            "provider": provider,
+            "model": model.strip(),
+            "mock": mock,
+            "hash": file_hash,
             "created": time.time(),
         }
     opts = {
@@ -270,6 +343,37 @@ def job_original(job_id: str) -> FileResponse:
     )
 
 
+@app.get("/api/history")
+def history() -> list[dict[str, Any]]:
+    _hydrate_history()
+    with _lock:
+        done = [dict(j) for j in _jobs.values() if j.get("status") == "done"]
+    items = [
+        {
+            "id": j["id"],
+            "filename": j.get("filename", ""),
+            "created": j.get("created", 0),
+            "source_name": j.get("source_name", ""),
+            "to": j.get("to", ""),
+            "provider": j.get("provider", ""),
+            "model": j.get("model", ""),
+            "pages": j.get("pages", 0),
+            "message": j.get("message", ""),
+        }
+        for j in done
+    ]
+    items.sort(key=lambda x: x["created"], reverse=True)
+    return items
+
+
+@app.delete("/api/jobs/{job_id}")
+def job_delete(job_id: str) -> dict[str, bool]:
+    with _lock:
+        _jobs.pop(job_id, None)
+    shutil.rmtree(JOBS_DIR / job_id, ignore_errors=True)
+    return {"ok": True}
+
+
 @app.get("/api/meta")
 def meta() -> dict[str, Any]:
     models = {
@@ -305,6 +409,7 @@ def main(argv: list[str] | None = None) -> int:
     import uvicorn
 
     print(f"pdf-translator web → http://{args.host}:{args.port}", flush=True)
+    print(f"historial y PDFs en {DATA_DIR}", flush=True)
     uvicorn.run(app, host=args.host, port=args.port, log_level="warning")
     return 0
 

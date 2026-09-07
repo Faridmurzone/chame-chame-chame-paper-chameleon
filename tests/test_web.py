@@ -1,5 +1,9 @@
 import io
+import os
+import tempfile
 import time
+
+os.environ.setdefault("PDF_TRANSLATE_DATA_DIR", tempfile.mkdtemp(prefix="pdf-tr-web-tests-"))
 
 import fitz
 import pytest
@@ -142,6 +146,63 @@ def test_rejects_bad_pages_spec(client):
 def test_unknown_job_404(client):
     assert client.get("/api/jobs/ffffff").status_code == 404
     assert client.get("/api/jobs/ffffff/download").status_code == 404
+
+
+def _unique_pdf_bytes(tag: str) -> bytes:
+    """PDF con contenido único para no colisionar con el dedup entre corridas."""
+    doc = fitz.open()
+    page = doc.new_page(width=595, height=842)
+    page.insert_textbox(
+        fitz.Rect(50, 60, 545, 200),
+        f"Unique test document {tag} about large language models and agents.",
+        fontsize=11,
+        fontname="helv",
+    )
+    buf = io.BytesIO()
+    doc.save(buf)
+    doc.close()
+    return buf.getvalue()
+
+
+def test_history_dedup_and_delete(client):
+    data = _unique_pdf_bytes(f"{time.time()}")
+    r1 = client.post(
+        "/api/translate",
+        data={"mock": "true", "to": "es"},
+        files={"file": ("hist.pdf", data, "application/pdf")},
+    )
+    job_id = r1.json()["job_id"]
+    _wait_done(client, job_id)
+
+    # El historial lo lista
+    hist = client.get("/api/history").json()
+    entry = next((h for h in hist if h["id"] == job_id), None)
+    assert entry is not None
+    assert entry["filename"] == "hist.pdf"
+    assert entry["to"] == "es" and entry["pages"] == 1
+
+    # Re-subir el mismo archivo → dedup: mismo job, sin re-traducir
+    r2 = client.post(
+        "/api/translate",
+        data={"mock": "true", "to": "es"},
+        files={"file": ("hist.pdf", data, "application/pdf")},
+    )
+    assert r2.json() == {"job_id": job_id, "dedup": "true"}
+
+    # Otro idioma destino → NO dedup (traducción distinta)
+    r3 = client.post(
+        "/api/translate",
+        data={"mock": "true", "to": "fr"},
+        files={"file": ("hist.pdf", data, "application/pdf")},
+    )
+    assert "dedup" not in r3.json()
+    _wait_done(client, r3.json()["job_id"])
+
+    # Borrar del historial: desaparece y el job queda 404
+    assert client.delete(f"/api/jobs/{job_id}").json() == {"ok": True}
+    assert client.get(f"/api/jobs/{job_id}").status_code == 404
+    hist = client.get("/api/history").json()
+    assert all(h["id"] != job_id for h in hist)
 
 
 def test_missing_api_key_friendly_error(client, monkeypatch):

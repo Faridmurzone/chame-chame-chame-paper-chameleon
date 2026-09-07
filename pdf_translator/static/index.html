@@ -74,25 +74,54 @@
   .mini{padding:6px 12px; font-size:12px; flex-shrink:0}
   .stats{color:var(--muted); margin:10px 0 12px}
   footer{color:var(--muted); font-size:12px; margin-top:28px; text-align:center}
-  /* visor embebido */
+  /* historial */
   .rowHead{display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap}
+  .histList{max-height:260px; overflow-y:auto; margin-top:6px}
+  .histItem{display:flex; justify-content:space-between; align-items:center; gap:10px; padding:8px 0; border-bottom:1px solid #21262d}
+  .histItem:last-child{border-bottom:none}
+  .histName{font-weight:600; font-size:13px; word-break:break-all}
+  .histMeta{color:var(--muted); font-size:12px}
+  .histAct{display:flex; gap:6px; align-items:center; flex-shrink:0}
+  a.mini-link{color:var(--accent); font-size:12px; text-decoration:none; padding:4px 8px; border:1px solid var(--border); border-radius:6px}
+  a.mini-link:hover{border-color:var(--accent)}
+  .danger:hover:not(:disabled){color:var(--err) !important; border-color:var(--err) !important}
+  /* visor embebido */
   .seg{display:inline-flex; border:1px solid var(--border); border-radius:8px; overflow:hidden}
   .segbtn{background:transparent; color:var(--muted); border:none; border-radius:0; padding:7px 16px; font-weight:600; font-size:13px}
   .segbtn:hover:not(:disabled){filter:none}
   .segbtn.active{background:var(--accent); color:#04121f}
-  .pager{display:flex; align-items:center; gap:10px; margin:12px 0; color:var(--muted); font-size:13px}
+  .pager{display:flex; align-items:center; gap:10px; margin:12px 0; color:var(--muted); font-size:13px; flex-wrap:wrap}
   .pager input{width:64px; padding:4px 6px; text-align:center; font-size:13px}
   .pager .mut b{color:var(--text)}
-  iframe#viewer{
-    width:100%; height:72vh; display:block; border:1px solid var(--border);
-    border-radius:8px; background:#0b0f14;
-  }
+  .zoomCtl{display:inline-flex; gap:6px; align-items:center}
+  #zoomLabel{min-width:44px; text-align:center; color:var(--muted); font-size:12px; font-variant-numeric:tabular-nums}
+  .viewerShell{display:flex; height:74vh; border:1px solid var(--border); border-radius:8px; background:#0b0f14; overflow:hidden}
+  .thumbs{width:100px; flex-shrink:0; overflow-y:auto; background:#11161d; border-right:1px solid var(--border); padding:8px}
+  .thumbs.off{display:none}
+  .thumb{margin:0 0 8px; border:2px solid transparent; border-radius:4px; cursor:pointer; background:#1a212b}
+  .thumb.active{border-color:var(--accent)}
+  .thumb canvas{width:100%; display:block; border-radius:2px}
+  .thumbPh{width:100%; height:100px; background:#1a212b}
+  .thumbNum{font-size:10px; color:var(--muted); text-align:center; padding:2px 0}
+  .pdfScroll{flex:1; overflow:auto; padding:12px}
+  .pageHolder{margin:0 auto 14px; background:#fff; box-shadow:0 2px 10px rgba(0,0,0,.55)}
+  .pageHolder canvas{display:block}
+  iframe#viewer{width:100%; height:74vh; border:1px solid var(--border); border-radius:8px; background:#0b0f14}
 </style>
 </head>
 <body>
 <div class="wrap">
   <h1>pdf-translator</h1>
   <p class="sub">Traduce PDFs preservando layout, fórmulas, gráficos e imágenes. Pipeline: <code>extract → classify → translate → render</code>.</p>
+
+  <!-- Historial -->
+  <div id="histPanel" class="panel">
+    <div class="rowHead">
+      <strong>Historial</strong>
+      <span class="histMeta" id="histCount"></span>
+    </div>
+    <div id="histList" class="histList"></div>
+  </div>
 
   <!-- Panel de subida -->
   <div id="uploadPanel">
@@ -161,19 +190,29 @@
   <div id="resultPanel" class="panel hidden">
     <div class="rowHead">
       <strong style="color:var(--ok)">✓ Traducción lista</strong>
-      <div class="seg" title="El switch conserva la página que estás viendo">
+      <div class="seg" title="El switch conserva la posición exacta en la que estás">
         <button type="button" class="segbtn active" id="btnTr">Traducido</button>
         <button type="button" class="segbtn" id="btnOr">Original</button>
       </div>
     </div>
     <p class="stats" id="stats"></p>
     <div class="pager">
+      <button type="button" class="ghost mini pdfjs-only" id="thumbsToggle" title="Mostrar/ocultar miniaturas">▦</button>
       <button type="button" class="ghost mini" id="pgPrev" title="Página anterior">◀</button>
       <span>pág <input id="pgNum" type="number" min="1" value="1"> / <span id="pgTotal">1</span></span>
       <button type="button" class="ghost mini" id="pgNext" title="Página siguiente">▶</button>
+      <span class="zoomCtl pdfjs-only">
+        <button type="button" class="ghost mini" id="zoomOut" title="Alejar">−</button>
+        <span id="zoomLabel">100%</span>
+        <button type="button" class="ghost mini" id="zoomIn" title="Acercar">+</button>
+      </span>
       <span class="mut">viendo: <b id="viewLabel">traducido</b></span>
     </div>
-    <iframe id="viewer" title="Previsualización del PDF"></iframe>
+    <div id="viewerShell" class="viewerShell hidden">
+      <div id="thumbs" class="thumbs"></div>
+      <div id="pdfScroll" class="pdfScroll"></div>
+    </div>
+    <iframe id="viewer" title="Previsualización del PDF" hidden></iframe>
     <div class="row">
       <a class="dl" id="dl" href="#" download>⬇ Descargar traducido</a>
       <a class="dlghost" id="dlOrig" href="#" download>⬇ Descargar original</a>
@@ -181,7 +220,8 @@
     </div>
   </div>
 
-  <footer>El PDF se procesa localmente; solo los bloques de texto viajan a la API de traducción.</footer>
+  <footer>El PDF se procesa localmente; solo los bloques de texto viajan a la API de traducción.<br>
+  Historial y PDFs guardados en <code>~/.pdf-translator</code> · borrá items desde el historial.</footer>
 </div>
 
 <script>
@@ -200,9 +240,11 @@ const PROVIDER_LABELS = {
 };
 const KEY_HINTS = { anthropic: "sk-ant-...", openai: "sk-...", google: "AIza...", deepseek: "sk-..." };
 const KEY_PREFIX = "pdftranslate.apikey.";
+const PDFJS_BASE = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/";
 let file = null, timer = null, jobId = null;
 let provider = "anthropic", apiKey = "";
 let viewMode = "tr", curPage = 1, totalPages = 1;
+let META = null;
 
 // Migración: key vieja única → key por proveedor
 (() => {
@@ -253,7 +295,6 @@ loadKey();
 paintKey();
 
 // Metadatos: idiomas, proveedores y modelos
-let META = null;
 fetch("/api/meta").then(r => r.json()).then(m => {
   META = m;
   $("#provider").innerHTML = m.providers
@@ -355,6 +396,12 @@ async function start() {
     const data = await r.json();
     if (!r.ok) throw new Error(typeof data.detail === "string" ? data.detail : "Error subiendo el archivo");
     jobId = data.job_id;
+    if (data.dedup) {
+      // ya estaba traducido: abrir directo el resultado
+      const jr = await fetch("/api/jobs/" + jobId);
+      openDone(await jr.json());
+      return;
+    }
     $("#uploadPanel").classList.add("hidden");
     $("#progressPanel").classList.remove("hidden");
     $("#stage").textContent = "En cola…";
@@ -385,49 +432,346 @@ async function poll() {
     }
     $("#stage").innerHTML = txt;
   } else if (j.status === "done") {
-    clearInterval(timer);
-    bar.classList.remove("indet");
-    bar.firstElementChild.style.width = "100%";
-    $("#stage").textContent = "Listo";
-    $("#progressPanel").classList.add("hidden");
-    $("#dl").href = "/api/jobs/" + jobId + "/download";
-    $("#dlOrig").href = "/api/jobs/" + jobId + "/original";
-    $("#stats").textContent = j.message;
-    totalPages = j.pages || 1;
-    viewMode = "tr";
-    curPage = 1;
-    showViewer();
-    $("#resultPanel").classList.remove("hidden");
+    openDone(j);
   } else if (j.status === "error") {
     fail(j.error || "Error desconocido");
   }
 }
 
-// ---- Visor embebido con switch traducido/original sincronizado por página ----
+function openDone(j) {
+  clearInterval(timer);
+  jobId = j.id;
+  $("#dl").href = `/api/jobs/${j.id}/download`;
+  $("#dlOrig").href = `/api/jobs/${j.id}/original`;
+  $("#stats").textContent = j.message;
+  totalPages = j.pages || 1;
+  viewMode = "tr";
+  curPage = 1;
+  docs = {};
+  $("#progressPanel").classList.add("hidden");
+  $("#uploadPanel").classList.add("hidden");
+  showViewer();
+  $("#resultPanel").classList.remove("hidden");
+  fetchHistory();
+}
+
+// ---- Historial persistente ----
+
+async function fetchHistory() {
+  try {
+    const r = await fetch("/api/history");
+    renderHistory(await r.json());
+  } catch {}
+}
+
+function renderHistory(items) {
+  const box = $("#histList");
+  $("#histCount").textContent = items.length ? `${items.length} traducciones guardadas` : "";
+  if (!items.length) {
+    box.innerHTML = `<div class="histMeta" style="padding:4px 0">Todavía no tradujiste nada. Arrastrá un PDF arriba.</div>`;
+    return;
+  }
+  box.innerHTML = items.map(it => {
+    const fecha = new Date(it.created * 1000).toLocaleDateString() + " " +
+      new Date(it.created * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    const modelo = it.model || it.provider || "";
+    return `<div class="histItem">
+      <div>
+        <div class="histName">${esc(it.filename)}</div>
+        <div class="histMeta">${fecha} · ${esc(it.source_name)}→${esc(it.to)} · ${esc(modelo)} · ${it.pages} págs</div>
+      </div>
+      <div class="histAct">
+        <button class="ghost mini" data-open="${it.id}">Abrir</button>
+        <a class="mini-link" href="/api/jobs/${it.id}/download" download title="Descargar traducido">⬇ ${esc(it.to)}</a>
+        <a class="mini-link" href="/api/jobs/${it.id}/original" download title="Descargar original">⬇ orig</a>
+        <button class="ghost mini danger" data-del="${it.id}" title="Borrar del historial">✕</button>
+      </div>
+    </div>`;
+  }).join("");
+}
+
+$("#histList").addEventListener("click", async e => {
+  const open = e.target.closest("[data-open]");
+  const del = e.target.closest("[data-del]");
+  if (open) {
+    try {
+      const r = await fetch("/api/jobs/" + open.dataset.open);
+      if (!r.ok) { fetchHistory(); return; }
+      $("#uploadPanel").classList.add("hidden");
+      openDone(await r.json());
+    } catch {}
+  }
+  if (del) {
+    await fetch("/api/jobs/" + del.dataset.del, { method: "DELETE" });
+    if (jobId === del.dataset.del && !$("#resultPanel").classList.contains("hidden")) reset();
+    fetchHistory();
+  }
+});
+
+// ---- Visor: pdf.js con tracking real de página/scroll; fallback a iframe nativo ----
+// pdfjsLib: null = sin intentar, false = falló (sin internet) → modo nativo.
+let pdfjsLib = null;
+let docs = {};           // {tr: PDFDocumentProxy, or: ...}
+let holders = [];        // placeholders de página del doc activo
+let thumbHolders = [];
+let renderScale = 1.0;   // 100% por default
+let renderToken = 0;
+let rendering = false, renderQueued = false;
+
+function loadPdfJs() {
+  if (pdfjsLib !== null) return Promise.resolve(pdfjsLib);
+  return new Promise(resolve => {
+    const s = document.createElement("script");
+    s.src = PDFJS_BASE + "pdf.min.js";
+    s.onload = () => {
+      try {
+        window.pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS_BASE + "pdf.worker.min.js";
+        pdfjsLib = window.pdfjsLib;
+      } catch { pdfjsLib = false; }
+      resolve(pdfjsLib);
+    };
+    s.onerror = () => { pdfjsLib = false; resolve(false); };
+    document.head.appendChild(s);
+  });
+}
 
 function viewerURL(mode, page) {
   // La query bustea el cache para que el #page= re-navegue; el server la ignora
   const base = mode === "tr" ? `/api/jobs/${jobId}/download` : `/api/jobs/${jobId}/original`;
-  return `${base}?p=${page}&t=${Date.now()}#page=${page}`;
+  return `${base}?p=${page}&t=${Date.now()}#page=${page}&zoom=100&pagemode=none`;
 }
-function showViewer() {
-  $("#viewer").src = viewerURL(viewMode, curPage);
+
+function pdfjsActive() { return !$("#viewerShell").classList.contains("hidden"); }
+
+function updateViewUI() {
   $("#viewLabel").textContent = viewMode === "tr" ? "traducido" : "original";
   $("#btnTr").classList.toggle("active", viewMode === "tr");
   $("#btnOr").classList.toggle("active", viewMode === "or");
+}
+function updatePager() {
   $("#pgNum").value = curPage;
   $("#pgNum").max = totalPages;
   $("#pgTotal").textContent = totalPages;
 }
+
+async function showViewer(keepScroll = false) {
+  const lib = await loadPdfJs();
+  if (lib) {
+    $("#viewer").hidden = true;
+    $("#viewer").src = "about:blank";
+    $("#viewerShell").classList.remove("hidden");
+    document.querySelectorAll(".pdfjs-only").forEach(el => el.classList.remove("hidden"));
+    await showPdfJs(keepScroll);
+  } else {
+    // Sin pdf.js (offline): iframe nativo del navegador
+    $("#viewerShell").classList.add("hidden");
+    $("#viewer").hidden = false;
+    document.querySelectorAll(".pdfjs-only").forEach(el => el.classList.add("hidden"));
+    $("#viewer").src = viewerURL(viewMode, curPage);
+  }
+  updateViewUI();
+  updatePager();
+}
+
+async function getDoc(mode) {
+  if (!docs[mode]) {
+    const url = mode === "tr" ? `/api/jobs/${jobId}/download` : `/api/jobs/${jobId}/original`;
+    docs[mode] = await pdfjsLib.getDocument(url).promise;
+  }
+  return docs[mode];
+}
+
+async function showPdfJs(keepScroll) {
+  const token = ++renderToken;
+  const scrollEl = $("#pdfScroll");
+  const keep = keepScroll ? scrollEl.scrollTop : 0;
+  const doc = await getDoc(viewMode);
+  if (token !== renderToken) return;
+  totalPages = doc.numPages;
+  await layoutPages(doc, token);
+  if (token !== renderToken) return;
+  buildThumbs(doc);
+  scrollEl.scrollTop = keep;
+  curPage = Math.min(Math.max(curPage, 1), totalPages);
+  queueRender();
+  highlightThumb();
+}
+
+async function layoutPages(doc, token) {
+  const el = $("#pdfScroll");
+  el.innerHTML = "";
+  holders = [];
+  const frag = document.createDocumentFragment();
+  for (let i = 1; i <= doc.numPages; i++) {
+    const page = await doc.getPage(i);
+    if (token !== renderToken) return;
+    const vp = page.getViewport({ scale: 1 });
+    const h = document.createElement("div");
+    h.className = "pageHolder";
+    h.dataset.w1 = vp.width;
+    h.dataset.h1 = vp.height;
+    h.style.width = (vp.width * renderScale) + "px";
+    h.style.height = (vp.height * renderScale) + "px";
+    frag.appendChild(h);
+    holders.push(h);
+  }
+  el.appendChild(frag);
+}
+
+async function renderPage(doc, pno, holder) {
+  if (holder.dataset.rendered === String(renderScale)) return;
+  const page = await doc.getPage(pno);
+  const dpr = window.devicePixelRatio || 1;
+  const vp = page.getViewport({ scale: renderScale * dpr });
+  holder.innerHTML = "";
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.floor(vp.width);
+  canvas.height = Math.floor(vp.height);
+  canvas.style.width = holder.style.width;
+  canvas.style.height = holder.style.height;
+  holder.appendChild(canvas);
+  await page.render({ canvasContext: canvas.getContext("2d"), viewport: vp }).promise;
+  holder.dataset.rendered = String(renderScale);
+}
+
+function queueRender() {
+  if (renderQueued) return;
+  renderQueued = true;
+  requestAnimationFrame(async () => {
+    renderQueued = false;
+    if (rendering) { queueRender(); return; }
+    rendering = true;
+    try { await renderVisible(); } finally { rendering = false; }
+  });
+}
+
+async function renderVisible() {
+  const doc = docs[viewMode];
+  if (!doc || !holders.length) return;
+  const el = $("#pdfScroll");
+  const top = el.scrollTop, bottom = top + el.clientHeight, pad = el.clientHeight;
+  for (let i = 0; i < holders.length; i++) {
+    const h = holders[i];
+    if (h.offsetTop + h.offsetHeight >= top - pad && h.offsetTop <= bottom + pad) {
+      await renderPage(doc, i + 1, h);
+    }
+  }
+  trackCurPage();
+}
+
+function trackCurPage() {
+  const el = $("#pdfScroll");
+  const center = el.scrollTop + el.clientHeight / 2;
+  let found = 1;
+  for (let i = 0; i < holders.length; i++) {
+    const h = holders[i];
+    if (h.offsetTop <= center && h.offsetTop + h.offsetHeight > center) { found = i + 1; break; }
+  }
+  if (found !== curPage) {
+    curPage = found;
+    $("#pgNum").value = curPage;
+    highlightThumb();
+  }
+}
+
+$("#pdfScroll").addEventListener("scroll", queueRender);
+
+// Miniaturas compactas, renderizadas en lazy
+async function buildThumbs(doc) {
+  const box = $("#thumbs");
+  box.innerHTML = "";
+  thumbHolders = [];
+  let ratio = 1.414;
+  try { const p1 = await doc.getPage(1); ratio = p1.getViewport({ scale: 1 }).height / p1.getViewport({ scale: 1 }).width; } catch {}
+  for (let i = 1; i <= doc.numPages; i++) {
+    const d = document.createElement("div");
+    d.className = "thumb";
+    d.dataset.page = i;
+    d.onclick = () => gotoPage(i);
+    const ph = document.createElement("div");
+    ph.className = "thumbPh";
+    ph.style.height = Math.round(80 * ratio) + "px";
+    const num = document.createElement("div");
+    num.className = "thumbNum";
+    num.textContent = i;
+    d.appendChild(ph);
+    d.appendChild(num);
+    box.appendChild(d);
+    thumbHolders.push(d);
+  }
+  highlightThumb();
+  renderThumbs();
+}
+
+async function renderThumbs() {
+  const doc = docs[viewMode];
+  if (!doc) return;
+  const box = $("#thumbs");
+  const top = box.scrollTop, bottom = top + box.clientHeight;
+  for (let i = 0; i < thumbHolders.length; i++) {
+    const t = thumbHolders[i];
+    if (t.dataset.done) continue;
+    if (t.offsetTop + t.offsetHeight < top - 300 || t.offsetTop > bottom + 300) continue;
+    const page = await doc.getPage(i + 1);
+    const vp = page.getViewport({ scale: 80 / page.getViewport({ scale: 1 }).width });
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.floor(vp.width);
+    canvas.height = Math.floor(vp.height);
+    t.querySelector(".thumbPh").replaceWith(canvas);
+    await page.render({ canvasContext: canvas.getContext("2d"), viewport: vp }).promise;
+    t.dataset.done = "1";
+  }
+}
+$("#thumbs").addEventListener("scroll", () => { renderThumbs(); });
+
+function highlightThumb() {
+  thumbHolders.forEach((t, i) => t.classList.toggle("active", i + 1 === curPage));
+}
+
 function gotoPage(p) {
   curPage = Math.min(totalPages, Math.max(1, p || 1));
-  showViewer();
+  if (pdfjsActive()) {
+    const h = holders[curPage - 1];
+    if (h) $("#pdfScroll").scrollTop = h.offsetTop - 6;
+    $("#pgNum").value = curPage;
+    highlightThumb();
+  } else {
+    $("#viewer").src = viewerURL(viewMode, curPage);
+  }
 }
-$("#btnTr").onclick = () => { if (viewMode !== "tr") { viewMode = "tr"; showViewer(); } };
-$("#btnOr").onclick = () => { if (viewMode !== "or") { viewMode = "or"; showViewer(); } };
+
+$("#btnTr").onclick = () => setView("tr");
+$("#btnOr").onclick = () => setView("or");
+function setView(mode) {
+  if (viewMode === mode) return;
+  viewMode = mode;
+  if (pdfjsActive()) {
+    showPdfJs(true);  // conserva el scroll exacto → sync página + posición
+  } else {
+    $("#viewer").src = viewerURL(viewMode, curPage);
+  }
+  updateViewUI();
+}
 $("#pgPrev").onclick = () => gotoPage(curPage - 1);
 $("#pgNext").onclick = () => gotoPage(curPage + 1);
 $("#pgNum").onchange = () => gotoPage(parseInt($("#pgNum").value, 10));
+$("#thumbsToggle").onclick = () => $("#thumbs").classList.toggle("off");
+$("#zoomIn").onclick = () => applyZoom(renderScale * 1.2);
+$("#zoomOut").onclick = () => applyZoom(renderScale / 1.2);
+
+function applyZoom(newScale) {
+  renderScale = Math.min(4, Math.max(0.4, newScale));
+  $("#zoomLabel").textContent = Math.round(renderScale * 100) + "%";
+  const ratio = renderScale;
+  holders.forEach(h => {
+    const w1 = parseFloat(h.dataset.w1), h1 = parseFloat(h.dataset.h1);
+    h.style.width = (w1 * ratio) + "px";
+    h.style.height = (h1 * ratio) + "px";
+    h.innerHTML = "";
+    delete h.dataset.rendered;
+  });
+  queueRender();
+}
 
 function fail(rawMsg) {
   clearInterval(timer);
@@ -445,6 +789,9 @@ function fail(rawMsg) {
 function reset() {
   $("#resultPanel").classList.add("hidden");
   $("#viewer").src = "about:blank";
+  docs = {}; holders = []; thumbHolders = [];
+  $("#pdfScroll").innerHTML = "";
+  $("#thumbs").innerHTML = "";
   $("#errActions").classList.add("hidden");
   $("#jerr").textContent = "";
   const bar = $("#bar");
@@ -459,6 +806,8 @@ function reset() {
   showErr("");
   $("#go").disabled = !file;
 }
+
+fetchHistory();
 </script>
 </body>
 </html>
