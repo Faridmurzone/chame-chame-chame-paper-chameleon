@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>pdf-translator</title>
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --border:#30363d; --text:#e6edf3;
+    --muted:#8b949e; --accent:#58a6ff; --ok:#3fb950; --err:#f85149;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bg); color:var(--text);
+    font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  .wrap{max-width:760px; margin:0 auto; padding:44px 20px 80px}
+  h1{font-size:22px; margin:0 0 4px; letter-spacing:-.01em}
+  .sub{color:var(--muted); margin:0 0 28px}
+  .sub code{color:var(--text); background:var(--panel); border:1px solid var(--border); border-radius:4px; padding:1px 6px}
+  .panel{background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:20px; margin-bottom:16px}
+  .drop{
+    border:2px dashed var(--border); border-radius:10px; padding:38px 20px; text-align:center;
+    color:var(--muted); cursor:pointer; transition:border-color .15s, background .15s, color .15s;
+  }
+  .drop:hover,.drop.hover{border-color:var(--accent); color:var(--text); background:rgba(88,166,255,.06)}
+  .drop .icon{font-size:28px; display:block; margin-bottom:8px}
+  .fname{color:var(--accent); font-weight:600; word-break:break-all}
+  .grid{display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:16px}
+  @media (max-width:560px){.grid{grid-template-columns:1fr}}
+  label{display:block; font-size:12px; color:var(--muted); margin-bottom:4px}
+  input,select,textarea{
+    width:100%; background:var(--bg); border:1px solid var(--border); border-radius:6px;
+    color:var(--text); padding:8px 10px; font:inherit;
+  }
+  input:focus,select:focus,textarea:focus{outline:none; border-color:var(--accent)}
+  textarea{resize:vertical; min-height:64px}
+  .row{display:flex; gap:14px; align-items:center; margin-top:16px; flex-wrap:wrap}
+  button{
+    background:var(--accent); border:none; color:#04121f; font:inherit; font-weight:700;
+    padding:10px 24px; border-radius:8px; cursor:pointer;
+  }
+  button:hover:not(:disabled){filter:brightness(1.1)}
+  button:disabled{opacity:.4; cursor:not-allowed}
+  button.ghost{background:transparent; color:var(--muted); border:1px solid var(--border); font-weight:400}
+  button.ghost:hover{color:var(--text)}
+  .chk{display:flex; align-items:center; gap:8px; color:var(--muted); font-size:13px; cursor:pointer}
+  .chk input{width:auto; accent-color:var(--accent)}
+  .bar{height:8px; background:#21262d; border-radius:99px; overflow:hidden; margin:4px 0 10px}
+  .bar>div{height:100%; width:0; background:var(--accent); border-radius:99px; transition:width .3s}
+  .bar.indet>div{width:30% !important; animation:slide 1.2s ease-in-out infinite}
+  @keyframes slide{0%{margin-left:-30%}100%{margin-left:100%}}
+  .stage{color:var(--muted); font-size:13px; min-height:20px}
+  .stage .num{color:var(--text); font-variant-numeric:tabular-nums}
+  .msg{margin-top:12px; font-size:13px}
+  .msg.ok{color:var(--ok)} .msg.err{color:var(--err); white-space:pre-wrap}
+  .hidden{display:none}
+  a.dl{
+    display:inline-block; background:var(--ok); color:#04140a; text-decoration:none; font-weight:700;
+    padding:10px 24px; border-radius:8px;
+  }
+  a.dl:hover{filter:brightness(1.1)}
+  .hint{color:var(--muted); font-size:12px; margin-top:10px}
+  .stats{color:var(--muted); margin:10px 0 16px}
+  footer{color:var(--muted); font-size:12px; margin-top:28px; text-align:center}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>pdf-translator</h1>
+  <p class="sub">Traduce PDFs preservando layout, fórmulas, gráficos e imágenes. Pipeline: <code>extract → classify → translate → render</code>.</p>
+
+  <!-- Panel de subida -->
+  <div id="uploadPanel">
+    <div class="panel">
+      <div id="drop" class="drop">
+        <span class="icon">📄</span>
+        Arrastrá un PDF acá, o hacé clic para elegirlo
+        <div id="fname" style="margin-top:6px"></div>
+      </div>
+      <input type="file" id="file" accept="application/pdf,.pdf" hidden>
+
+      <div class="grid">
+        <div>
+          <label for="from">Idioma origen</label>
+          <select id="from"></select>
+        </div>
+        <div>
+          <label for="to">Idioma destino</label>
+          <select id="to"></select>
+        </div>
+        <div>
+          <label for="pages">Páginas (ej. 1-3,7 — vacío = todas)</label>
+          <input id="pages" placeholder="todas">
+        </div>
+        <div>
+          <label for="model">Modelo</label>
+          <input id="model" placeholder="">
+        </div>
+        <div style="grid-column:1/-1">
+          <label for="glossary">Glosario (términos a NO traducir, uno por línea — opcional)</label>
+          <textarea id="glossary" placeholder="transformer&#10;fine-tuning"></textarea>
+        </div>
+      </div>
+
+      <div class="row">
+        <button id="go" disabled>Traducir</button>
+        <label class="chk"><input type="checkbox" id="mock"> Modo demo (sin API: marca los textos con [ES])</label>
+      </div>
+      <p class="hint" id="hint"></p>
+    </div>
+  </div>
+
+  <!-- Panel de progreso -->
+  <div id="progressPanel" class="panel hidden">
+    <strong id="stage">Subiendo…</strong>
+    <div class="bar indet" id="bar"><div></div></div>
+    <div class="msg err" id="err"></div>
+  </div>
+
+  <!-- Panel de resultado -->
+  <div id="resultPanel" class="panel hidden">
+    <strong style="color:var(--ok)">✓ Traducción lista</strong>
+    <p class="stats" id="stats"></p>
+    <a class="dl" id="dl" href="#">Descargar PDF traducido</a>
+    <div class="row">
+      <button class="ghost" id="again">Traducir otro PDF</button>
+    </div>
+  </div>
+
+  <footer>El PDF se procesa localmente; solo los bloques de texto viajan a la API de traducción.</footer>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const STAGES = {
+  extract:   "Extrayendo texto del PDF…",
+  classify:  "Clasificando bloques (fórmulas, código, números, URLs)…",
+  translate: "Traduciendo",
+  render:    "Reinsertando el texto en el layout original…",
+};
+let file = null, timer = null, jobId = null;
+
+// Metadatos: idiomas y modelo default
+fetch("/api/meta").then(r => r.json()).then(m => {
+  const opts = Object.entries(m.languages)
+    .map(([k, v]) => `<option value="${k}">${v} (${k})</option>`).join("");
+  $("#from").innerHTML = opts; $("#to").innerHTML = opts;
+  $("#from").value = "en"; $("#to").value = "es";
+  $("#model").placeholder = m.default_model;
+  $("#hint").textContent =
+    "Sin API key configurada usá el modo demo para probar el layout.";
+}).catch(() => {});
+
+// Dropzone
+const drop = $("#drop");
+drop.onclick = () => $("#file").click();
+drop.addEventListener("dragover", e => { e.preventDefault(); drop.classList.add("hover"); });
+drop.addEventListener("dragleave", () => drop.classList.remove("hover"));
+drop.addEventListener("drop", e => {
+  e.preventDefault(); drop.classList.remove("hover");
+  setFile(e.dataTransfer.files[0]);
+});
+$("#file").onchange = e => setFile(e.target.files[0]);
+
+function setFile(f) {
+  if (!f) return;
+  if (!f.name.toLowerCase().endsWith(".pdf")) { showErr("El archivo debe ser .pdf"); return; }
+  showErr("");
+  file = f;
+  $("#fname").innerHTML =
+    `<span class="fname">${esc(f.name)}</span> · ${(f.size / 1048576).toFixed(1)} MB — clic para cambiar`;
+  $("#go").disabled = false;
+}
+
+$("#go").onclick = start;
+$("#again").onclick = reset;
+
+function esc(s) {
+  return s.replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+}
+function showErr(msg) { $("#err").textContent = msg || ""; }
+
+async function start() {
+  showErr("");
+  const fd = new FormData();
+  fd.append("file", file);
+  fd.append("to", $("#to").value);
+  fd.append("source", $("#from").value);
+  fd.append("model", $("#model").value.trim());
+  fd.append("pages", $("#pages").value.trim());
+  fd.append("glossary", $("#glossary").value);
+  fd.append("mock", $("#mock").checked);
+  $("#go").disabled = true;
+  try {
+    const r = await fetch("/api/translate", { method: "POST", body: fd });
+    const data = await r.json();
+    if (!r.ok) throw new Error(typeof data.detail === "string" ? data.detail : "Error subiendo el archivo");
+    jobId = data.job_id;
+    $("#uploadPanel").classList.add("hidden");
+    $("#progressPanel").classList.remove("hidden");
+    $("#stage").textContent = "En cola…";
+    timer = setInterval(poll, 600);
+  } catch (e) {
+    showErr(e.message);
+    $("#go").disabled = false;
+  }
+}
+
+async function poll() {
+  let r, j;
+  try {
+    r = await fetch("/api/jobs/" + jobId);
+    j = await r.json();
+  } catch { return; }
+  if (!r.ok) { fail(j && j.detail || "Job no encontrado"); return; }
+
+  const bar = $("#bar");
+  if (j.status === "queued" || j.status === "running") {
+    let txt = STAGES[j.stage] || "Procesando…";
+    if (j.stage === "translate" && j.total > 0) {
+      txt += ` <span class="num">${j.current} / ${j.total} bloques</span>`;
+      bar.classList.remove("indet");
+      bar.firstElementChild.style.width = (j.current / j.total * 100) + "%";
+    } else {
+      bar.classList.add("indet");
+    }
+    $("#stage").innerHTML = txt;
+  } else if (j.status === "done") {
+    clearInterval(timer);
+    bar.classList.remove("indet");
+    bar.firstElementChild.style.width = "100%";
+    $("#stage").textContent = "Listo";
+    $("#progressPanel").classList.add("hidden");
+    $("#dl").href = "/api/jobs/" + jobId + "/download";
+    $("#stats").textContent = j.message;
+    $("#resultPanel").classList.remove("hidden");
+  } else if (j.status === "error") {
+    fail(j.error || "Error desconocido");
+  }
+}
+
+function fail(msg) {
+  clearInterval(timer);
+  $("#progressPanel").classList.add("hidden");
+  $("#uploadPanel").classList.remove("hidden");
+  showErr(msg);
+  $("#go").disabled = !file;
+}
+
+function reset() {
+  $("#resultPanel").classList.add("hidden");
+  $("#uploadPanel").classList.remove("hidden");
+  $("#bar").classList.add("indet");
+  $("#bar").firstElementChild.style.width = "0";
+  showErr("");
+  $("#go").disabled = false;
+}
+</script>
+</body>
+</html>

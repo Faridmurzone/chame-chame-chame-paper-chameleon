@@ -7,6 +7,7 @@ MockTranslator permite correr el pipeline sin API key (tests / pruebas de layout
 
 import json
 import sys
+from collections.abc import Callable
 from typing import Protocol
 
 from .segments import Segment
@@ -77,9 +78,14 @@ class Translator(Protocol):
 class MockTranslator:
     """Marca los textos sin llamar a ninguna API. Útil para tests y probar el layout."""
 
+    def __init__(self, progress_cb: Callable[[int, int], None] | None = None):
+        self.progress_cb = progress_cb
+
     def translate(self, segments: list[Segment]) -> None:
-        for seg in segments:
+        for i, seg in enumerate(segments, start=1):
             seg.translation = f"[ES] {seg.text}"
+            if self.progress_cb:
+                self.progress_cb(i, len(segments))
 
 
 class ClaudeTranslator:
@@ -91,6 +97,7 @@ class ClaudeTranslator:
         glossary: list[str] | None = None,
         max_batch_chars: int = 6000,
         verbose: bool = True,
+        progress_cb: Callable[[int, int], None] | None = None,
     ):
         import anthropic
 
@@ -98,6 +105,7 @@ class ClaudeTranslator:
         self.model = model
         self.max_batch_chars = max_batch_chars
         self.verbose = verbose
+        self.progress_cb = progress_cb
         keep_terms = list(dict.fromkeys(DEFAULT_KEEP_TERMS + (glossary or [])))
         extra = ", " + ", ".join(f'"{t}"' for t in keep_terms[4:30]) if len(keep_terms) > 4 else ""
         self.system = SYSTEM_PROMPT.format(
@@ -105,8 +113,13 @@ class ClaudeTranslator:
         )
 
     def translate(self, segments: list[Segment]) -> None:
+        total = len(segments)
+        done = 0
         for batch in self._batches(segments):
             self._translate_batch(batch)
+            done += len(batch)
+            if self.progress_cb:
+                self.progress_cb(done, total)
 
     def _batches(self, segments: list[Segment]):
         batch: list[Segment] = []

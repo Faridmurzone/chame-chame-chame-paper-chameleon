@@ -9,6 +9,18 @@ pdf-translate paper.pdf --to es
 # genera paper.es.pdf
 ```
 
+También tiene **interfaz web**: subís el PDF desde el navegador, seguís el progreso
+en vivo y descargás el resultado.
+
+```bash
+pip install -e ".[web]"
+pdf-translate-web          # → http://127.0.0.1:8000
+```
+
+La página (en `pdf_translator/static/index.html`) es self-contained: sin build ni
+frameworks, tema oscuro. El backend expone `POST /api/translate`,
+`GET /api/jobs/{id}` (progreso por etapa y bloque) y `GET /api/jobs/{id}/download`.
+
 ## Cómo funciona
 
 El pipeline trabaja **in-place** sobre el PDF original, en cuatro etapas:
