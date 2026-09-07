@@ -16,9 +16,15 @@ pdf-translate paper.pdf --to es
 ```
 
 También tiene **interfaz web**: subís el PDF desde el navegador, seguís el progreso
-en vivo, comparás el resultado contra el original en un visor embebido (switch
-traducido/original que conserva la página y la posición de scroll, zoom, miniaturas)
-y descargás ambos PDFs. El **historial persiste**: los mismos PDFs no se vuelven a
+en vivo y comparás el resultado contra el original en un visor embebido (switch
+traducido/original que conserva la posición exacta de scroll, zoom, miniaturas).
+A un costado corre una **estantería** con tus papers traducidos como lomos de
+libros: título en vertical, color según idioma destino, y se "jalan" hacia afuera
+al pasar el mouse. El título se extrae del PDF (metadata o el texto más grande de
+la primera página; si nada, el nombre de archivo) y es editable, igual que los
+autores y keywords. Con el checkbox **Compartir con la comunidad** — o desde ＋ en
+cada lomo — el paper entra a la biblioteca comunitaria: un buscador por título,
+autores y keywords sobre todo lo compartido. Los mismos PDFs no se vuelven a
 traducir (dedup por contenido) y podés reabrir, descargar o borrar cada traducción.
 
 ```bash
@@ -30,7 +36,9 @@ La página (en `pdf_translator/static/index.html`) es self-contained: sin build 
 frameworks, tema oscuro. El visor usa pdf.js por CDN y cae al visor nativo del
 navegador si no hay conexión. El backend expone `POST /api/translate`,
 `GET /api/jobs/{id}`, `GET /api/jobs/{id}/download`, `GET /api/jobs/{id}/original`,
-`GET /api/history`, `DELETE /api/jobs/{id}` y `GET /api/meta`.
+`GET /api/history`, `DELETE /api/jobs/{id}`, `POST /api/jobs/{id}/share`,
+`DELETE /api/jobs/{id}/share`, `PATCH /api/jobs/{id}/meta`, `GET /api/community`
+y `GET /api/meta`.
 
 Los PDFs y sus metadatos persisten en `~/.pdf-translator/jobs`
 (configurable con `PDF_TRANSLATE_DATA_DIR`). Los trabajos completados no expiran:

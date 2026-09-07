@@ -12,6 +12,10 @@ API:
     GET  /api/jobs/{id}/original — PDF original
     GET  /api/history            — historial de traducciones completadas
     DELETE /api/jobs/{id}        — borra un job del historial
+    POST /api/jobs/{id}/share    — comparte la traducción con la comunidad
+    DELETE /api/jobs/{id}/share  — deja de compartirla
+    PATCH /api/jobs/{id}/meta    — edita título, autores y keywords
+    GET  /api/community?q=&to=   — biblioteca comunitaria con buscador
     GET  /api/meta               — idiomas, proveedores y catálogo de modelos
 
 Los PDFs y metadatos persisten en ~/.pdf-translator/jobs (configurable con
@@ -29,7 +33,7 @@ from pathlib import Path
 from typing import Any
 
 import fitz
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Body, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -159,6 +163,36 @@ def _cleanup_old_jobs() -> None:
             _jobs.pop(jid, None)
 
 
+def _page1_title(doc: "fitz.Document") -> str:
+    """Texto más grande de la página 1: fallback de título sin metadata."""
+    try:
+        if not doc.page_count:
+            return ""
+        best, best_size = "", 0.0
+        for block in doc[0].get_text("dict").get("blocks", []):
+            if block.get("type") != 0:
+                continue
+            for line in block.get("lines", []):
+                spans = line.get("spans", [])
+                text = "".join(s.get("text", "") for s in spans).strip()
+                size = max((s.get("size", 0) for s in spans), default=0.0)
+                if text and len(text) >= 12 and size > best_size:
+                    best, best_size = text, size
+        return best.strip()
+    except Exception:
+        return ""
+
+
+def _paper_meta_from_doc(doc: "fitz.Document", fallback: str) -> tuple[str, str]:
+    """(título, autores): metadata del PDF → texto grande de pág. 1 → fallback."""
+    md = doc.metadata or {}
+    title = (md.get("title") or "").strip()
+    authors = (md.get("author") or "").strip()
+    if not title:
+        title = _page1_title(doc)
+    return title or fallback, authors
+
+
 def _run(
     job_id: str,
     input_path: Path,
@@ -219,6 +253,7 @@ async def translate(
     model: str = Form(""),
     pages: str = Form(""),
     glossary: str = Form(""),
+    share: bool = Form(False),
     api_key: str = Form(""),
 ) -> dict[str, str]:
     _cleanup_old_jobs()
@@ -249,6 +284,8 @@ async def translate(
             None,
         )
     if existing:
+        if share:
+            _apply_share(existing, {})
         return {"job_id": existing, "dedup": "true"}
 
     job_id = uuid.uuid4().hex[:12]
@@ -256,9 +293,14 @@ async def translate(
     job_dir.mkdir(parents=True, exist_ok=True)
     input_path = job_dir / "input.pdf"
     input_path.write_bytes(data)
+    stem = Path(name).stem.replace("-", " ").replace("_", " ")
+    title, authors = stem, ""
     try:
         doc = fitz.open(str(input_path))
         page_count = doc.page_count
+        # Título/autores para la estantería: metadata del PDF o el texto más
+        # grande de la página 1; si nada, el nombre de archivo humanizado.
+        title, authors = _paper_meta_from_doc(doc, stem)
         doc.close()
     except Exception:
         shutil.rmtree(job_dir, ignore_errors=True)
@@ -291,6 +333,11 @@ async def translate(
             "model": model.strip(),
             "hash": file_hash,
             "created": time.time(),
+            "shared": share,
+            "shared_at": time.time() if share else 0,
+            "title": title,
+            "authors": authors,
+            "keywords": "",
         }
     opts = {
         "provider": provider,
@@ -357,6 +404,10 @@ def history() -> list[dict[str, Any]]:
             "model": j.get("model", ""),
             "pages": j.get("pages", 0),
             "message": j.get("message", ""),
+            "title": j.get("title", ""),
+            "authors": j.get("authors", ""),
+            "keywords": j.get("keywords", ""),
+            "shared": bool(j.get("shared")),
         }
         for j in done
     ]
@@ -370,6 +421,103 @@ def job_delete(job_id: str) -> dict[str, bool]:
         _jobs.pop(job_id, None)
     shutil.rmtree(JOBS_DIR / job_id, ignore_errors=True)
     return {"ok": True}
+
+
+def _apply_share(job_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    job = _snapshot(job_id)
+    if job["status"] != "done":
+        raise HTTPException(400, "Solo se pueden compartir traducciones completas.")
+    title = (payload.get("title") or "").strip() or job.get("title", "")
+    authors = (payload.get("authors") or "").strip() or job.get("authors", "")
+    keywords = (payload.get("keywords") or "").strip() or job.get("keywords", "")
+    if not title:
+        try:
+            doc = fitz.open(str(JOBS_DIR / job_id / "input.pdf"))
+            auto_title, auto_authors = _paper_meta_from_doc(doc, job.get("filename", ""))
+            doc.close()
+        except Exception:
+            auto_title, auto_authors = "", ""
+        title = auto_title or job.get("filename", "")
+        authors = authors or auto_authors
+    _update(
+        job_id,
+        shared=True,
+        shared_at=job.get("shared_at") or time.time(),
+        title=title,
+        authors=authors,
+        keywords=keywords,
+    )
+    _save_meta(job_id)
+    return {"ok": True, "title": title, "authors": authors, "keywords": keywords}
+
+
+@app.post("/api/jobs/{job_id}/share")
+def job_share(job_id: str, payload: dict | None = Body(default=None)) -> dict[str, Any]:
+    """Comparte una traducción terminada con la comunidad (payload opcional)."""
+    return _apply_share(job_id, payload or {})
+
+
+@app.patch("/api/jobs/{job_id}/meta")
+def job_edit_meta(job_id: str, payload: dict = Body(...)) -> dict[str, Any]:
+    """Edita título, autores y keywords del paper (independiente de compartir)."""
+    _snapshot(job_id)
+    fields: dict[str, str] = {}
+    for key in ("title", "authors", "keywords"):
+        if key in payload:
+            val = str(payload[key]).strip()
+            if val or key != "title":  # el título no puede quedar vacío
+                fields[key] = val
+    if not fields:
+        raise HTTPException(400, "Nada para actualizar.")
+    _update(job_id, **fields)
+    _save_meta(job_id)
+    return {"ok": True}
+
+
+@app.delete("/api/jobs/{job_id}/share")
+def job_unshare(job_id: str) -> dict[str, bool]:
+    _snapshot(job_id)
+    _update(job_id, shared=False)
+    _save_meta(job_id)
+    return {"ok": True}
+
+
+@app.get("/api/community")
+def community(q: str = "", to: str = "") -> list[dict[str, Any]]:
+    """Biblioteca comunitaria: papers compartidos con búsqueda por texto."""
+    _hydrate_history()
+    with _lock:
+        shared = [
+            dict(j) for j in _jobs.values()
+            if j.get("status") == "done" and j.get("shared")
+        ]
+    terms = [t.lower() for t in q.split() if t.strip()]
+    items = []
+    for j in shared:
+        if to and j.get("to") != to:
+            continue
+        hay = " ".join([
+            j.get("title", ""), j.get("authors", ""),
+            j.get("keywords", ""), j.get("filename", ""),
+        ]).lower()
+        if terms and not all(t in hay for t in terms):
+            continue
+        items.append({
+            "id": j["id"],
+            "title": j.get("title", ""),
+            "authors": j.get("authors", ""),
+            "keywords": j.get("keywords", ""),
+            "filename": j.get("filename", ""),
+            "created": j.get("created", 0),
+            "shared_at": j.get("shared_at", 0),
+            "source_name": j.get("source_name", ""),
+            "to": j.get("to", ""),
+            "provider": j.get("provider", ""),
+            "model": j.get("model", ""),
+            "pages": j.get("pages", 0),
+        })
+    items.sort(key=lambda x: x["shared_at"] or x["created"], reverse=True)
+    return items
 
 
 @app.get("/api/meta")

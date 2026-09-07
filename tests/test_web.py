@@ -266,3 +266,81 @@ def test_translator_accepts_api_key_without_env(monkeypatch):
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     t = ClaudeTranslator(api_key="sk-ant-fake", verbose=False)
     assert t.model  # el cliente se construye con la key explícita sin explotar
+
+
+def _done_job(fake_api, tag: str, share: bool = False):
+    payload = _unique_pdf_bytes(tag)
+    r = fake_api.post(
+        "/api/translate",
+        data={"to": "es", "share": "true"} if share else {"to": "es"},
+        files={"file": ("shelf.pdf", payload, "application/pdf")},
+    )
+    assert r.status_code == 200
+    job_id = r.json()["job_id"]
+    data = _wait_done(fake_api, job_id)
+    assert data["status"] == "done", data
+    return job_id
+
+
+def test_share_and_community_search(fake_api):
+    job_id = _done_job(fake_api, f"comunitario-{time.time()}", share=True)
+    com = fake_api.get("/api/community").json()
+    entry = next((c for c in com if c["id"] == job_id), None)
+    assert entry is not None
+    # título del paper extraído, no el nombre del archivo
+    assert entry["title"] and entry["title"] != "shelf.pdf"
+    assert entry["to"] == "es" and entry["pages"] == 1
+
+    # buscador: por término del título y sin resultados
+    term = entry["title"].split()[0].lower()
+    assert any(c["id"] == job_id for c in fake_api.get("/api/community", params={"q": term}).json())
+    assert fake_api.get("/api/community", params={"q": "zzzinexistente"}).json() == []
+
+    # editar título y keywords (PATCH) → se refleja en la comunidad y el buscador
+    new_title = f"Titulo Editado {time.time()}"
+    r = fake_api.patch(
+        f"/api/jobs/{job_id}/meta",
+        json={"title": new_title, "keywords": "agents, llm"},
+    )
+    assert r.json()["ok"] is True
+    entry = next(c for c in fake_api.get("/api/community").json() if c["id"] == job_id)
+    assert entry["title"] == new_title
+    assert any(c["id"] == job_id for c in fake_api.get("/api/community", params={"q": "llm"}).json())
+
+
+def test_unshare_and_history_fields(fake_api):
+    job_id = _done_job(fake_api, f"unshare-{time.time()}", share=True)
+    entry = next(h for h in fake_api.get("/api/history").json() if h["id"] == job_id)
+    assert entry["shared"] is True and entry["title"]
+    assert fake_api.delete(f"/api/jobs/{job_id}/share").json() == {"ok": True}
+    entry = next(h for h in fake_api.get("/api/history").json() if h["id"] == job_id)
+    assert entry["shared"] is False
+    assert all(c["id"] != job_id for c in fake_api.get("/api/community").json())
+
+
+def test_dedup_with_share_propagates(fake_api):
+    payload = _unique_pdf_bytes(f"dedup-share-{time.time()}")
+    r1 = fake_api.post(
+        "/api/translate", data={"to": "es"},
+        files={"file": ("a.pdf", payload, "application/pdf")},
+    )
+    job_id = r1.json()["job_id"]
+    _wait_done(fake_api, job_id)
+    r2 = fake_api.post(
+        "/api/translate",
+        data={"to": "es", "share": "true"},
+        files={"file": ("b.pdf", payload, "application/pdf")},
+    )
+    assert r2.json() == {"job_id": job_id, "dedup": "true"}
+    assert any(c["id"] == job_id for c in fake_api.get("/api/community").json())
+
+
+def test_share_requires_done(client, monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    r = client.post(
+        "/api/translate", data={"to": "es"},
+        files={"file": ("paper.pdf", _pdf_bytes(), "application/pdf")},
+    )
+    job_id = r.json()["job_id"]
+    assert _wait_done(client, job_id)["status"] == "error"
+    assert client.post(f"/api/jobs/{job_id}/share", json={}).status_code == 400

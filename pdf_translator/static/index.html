@@ -18,7 +18,7 @@
   }
   .wrap{max-width:900px; margin:0 auto; padding:44px 20px 80px}
   h1{font-size:22px; margin:0 0 4px; letter-spacing:-.01em; display:flex; align-items:center; gap:10px}
-  .logoImg{width:36px; height:36px; display:block; flex-shrink:0}
+  .logoImg{width:54px; height:54px; display:block; flex-shrink:0}
   .sub{color:var(--muted); margin:0 0 28px}
   .sub code{color:var(--text); background:var(--panel); border:1px solid var(--border); border-radius:4px; padding:1px 6px}
   .panel{background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:20px; margin-bottom:16px}
@@ -110,21 +110,87 @@
   .pageHolder{margin:0 auto 14px; background:#fff; box-shadow:0 2px 10px rgba(0,0,0,.55)}
   .pageHolder canvas{display:block}
   iframe#viewer{width:100%; height:74vh; border:1px solid var(--border); border-radius:8px; background:#0b0f14}
+  /* estantería lateral: tus papers como lomos + comunidad */
+  .layout{display:flex; align-items:flex-start; min-height:100vh}
+  .wrap{flex:1; min-width:0}
+  .shelf{
+    position:sticky; top:0; width:100px; height:100vh; flex-shrink:0;
+    background:#0a0e13; border-left:1px solid var(--border);
+    display:flex; flex-direction:column; overflow:hidden;
+    transition:width .25s ease;
+  }
+  .shelf.com{width:330px}
+  .shelfTabs{display:flex; gap:6px; padding:10px 8px 6px}
+  .shelfTabs button{
+    flex:1; background:transparent; color:var(--muted); border:1px solid var(--border);
+    border-radius:6px; padding:5px 4px; font-size:11px; font-weight:600; cursor:pointer;
+  }
+  .shelfTabs button:hover{color:var(--text)}
+  .shelfTabs button.active{background:var(--accent); color:#04121f; border-color:var(--accent)}
+  .spines{flex:1; min-height:0; overflow-y:auto; padding:4px 0 16px; display:flex; flex-direction:column; align-items:center}
+  .spine{
+    position:relative; width:46px; height:176px; margin:7px 0; flex-shrink:0;
+    border-radius:3px 5px 5px 3px; cursor:pointer;
+    display:flex; flex-direction:column; align-items:center; justify-content:space-between;
+    padding:8px 0 6px;
+    box-shadow:inset 3px 0 4px rgba(255,255,255,.16), inset -3px 0 5px rgba(0,0,0,.5), 1px 3px 6px rgba(0,0,0,.55);
+    transition:transform .16s ease, width .16s ease;
+  }
+  .spine:hover{transform:translateX(-8px); width:62px}
+  .spine.active{transform:translateX(-12px); width:62px; outline:2px solid var(--accent); outline-offset:2px}
+  .spineT{
+    writing-mode:vertical-rl; text-orientation:mixed;
+    font-size:10.5px; line-height:1.2; font-weight:600; letter-spacing:.01em;
+    color:rgba(255,255,255,.92); text-shadow:0 1px 2px rgba(0,0,0,.55);
+    flex:1; min-height:0; overflow:hidden; padding-top:15px;
+  }
+  .spineLang{
+    font-size:9px; font-weight:700; letter-spacing:.08em; color:rgba(255,255,255,.9);
+    background:rgba(0,0,0,.3); border-radius:3px; padding:1px 4px;
+  }
+  .spineActs{
+    position:absolute; top:2px; left:50%; transform:translateX(-50%);
+    display:flex; gap:3px; opacity:0; transition:opacity .15s; z-index:2;
+  }
+  .spine:hover .spineActs{opacity:1}
+  .spineActs button{
+    background:rgba(4,8,14,.78); color:var(--text); border:1px solid rgba(255,255,255,.25);
+    border-radius:4px; font-size:10px; line-height:1; padding:3px 4px; cursor:pointer;
+  }
+  .spineActs button:hover{border-color:var(--accent); color:var(--accent)}
+  .shelfEmpty{color:var(--muted); font-size:11px; padding:16px 10px; text-align:center; line-height:1.6}
+  /* comunidad dentro de la estantería */
+  .comBox{display:none; flex:1; min-height:0; flex-direction:column}
+  .shelf.com .comBox{display:flex}
+  .shelf.com .spines{display:none}
+  .comSearch{margin:0 8px 8px; padding:7px 9px; font-size:12px}
+  .comList{flex:1; min-height:0; overflow-y:auto; padding:0 8px 14px}
+  .comItem{background:var(--panel); border:1px solid var(--border); border-radius:8px; padding:9px 10px; margin-bottom:8px; cursor:pointer}
+  .comItem:hover{border-color:var(--accent)}
+  .comTitle{font-size:12.5px; font-weight:600; line-height:1.35; margin-bottom:3px}
+  .comMeta{color:var(--muted); font-size:11px; line-height:1.5}
+  .comKw{font-size:10.5px; color:var(--muted); margin-top:4px}
+  .comKw b{color:var(--accent); font-weight:500}
+  .comActs{display:flex; gap:6px; margin-top:7px}
+  /* modal compartir / editar */
+  .modal{position:fixed; inset:0; z-index:60; background:rgba(4,8,14,.62); display:flex; align-items:center; justify-content:center}
+  .modalBox{width:min(430px,92vw); display:flex; flex-direction:column; gap:10px}
+  @media (max-width:820px){
+    .layout{flex-direction:column-reverse}
+    .shelf{position:static; width:auto; height:132px; border-left:none; border-top:1px solid var(--border)}
+    .spines{flex-direction:row; align-items:center; overflow-x:auto; overflow-y:hidden; padding:6px 10px}
+    .spine{margin:0 6px; height:104px}
+    .spine:hover{transform:translateY(-4px); width:46px}
+    .spine.active{transform:translateY(-6px); width:46px}
+    .shelf.com{width:auto; height:420px}
+  }
 </style>
 </head>
 <body>
-<div class="wrap">
+<div class="layout">
+<main class="wrap">
   <h1><img class="logoImg" src="/static/logo.png" alt="">Paper Chameleon</h1>
-  <p class="sub">Traduce PDFs preservando layout, fórmulas, gráficos e imágenes — el camaleón cambia el idioma, el paper queda igual. Pipeline: <code>extract → classify → translate → render</code>.</p>
-
-  <!-- Historial -->
-  <div id="histPanel" class="panel">
-    <div class="rowHead">
-      <strong>Historial</strong>
-      <span class="histMeta" id="histCount"></span>
-    </div>
-    <div id="histList" class="histList"></div>
-  </div>
+  <p class="sub">Traduce PDFs preservando layout, fórmulas, gráficos e imágenes. El camaleón mamá el camaleón, cambia tu paper según la ocasión.</p>
 
   <!-- Panel de subida -->
   <div id="uploadPanel">
@@ -172,6 +238,7 @@
 
       <div class="row">
         <button id="go" disabled>Traducir</button>
+        <label class="chk"><input type="checkbox" id="share"> Compartir con la comunidad</label>
       </div>
       <p class="hint" id="hint"></p>
       <div class="msg err" id="err"></div>
@@ -223,7 +290,45 @@
   </div>
 
   <footer>El PDF se procesa localmente; solo los bloques de texto viajan a la API de traducción.<br>
-  Historial y PDFs guardados en <code>~/.pdf-translator</code> · borrá items desde el historial.</footer>
+  Los PDFs y su historial quedan guardados en <code>~/.pdf-translator</code>.</footer>
+</main>
+
+<aside class="shelf" id="shelf">
+  <div class="shelfTabs">
+    <button type="button" id="tabMine" class="active" title="Tus traducciones">Míos</button>
+    <button type="button" id="tabCom" title="Biblioteca de la comunidad">Comunidad</button>
+  </div>
+  <div class="spines" id="spines"></div>
+  <div class="comBox">
+    <input id="comSearch" class="comSearch" placeholder="Buscar por título, autor o keywords…" spellcheck="false">
+    <div class="comList" id="comList"></div>
+  </div>
+</aside>
+</div>
+
+<div class="modal hidden" id="shareModal">
+  <div class="modalBox panel">
+    <strong id="shHead">Compartir con la comunidad</strong>
+    <div>
+      <label for="shTitle">Título del paper</label>
+      <input id="shTitle" spellcheck="false" placeholder="dejá vacío para extraerlo del PDF">
+    </div>
+    <div>
+      <label for="shAuthors">Autores</label>
+      <input id="shAuthors" spellcheck="false" placeholder="Smith J., Doe A.">
+    </div>
+    <div>
+      <label for="shKeywords">Keywords (separadas por comas)</label>
+      <input id="shKeywords" spellcheck="false" placeholder="transformers, attention, NLP">
+    </div>
+    <div class="row" style="margin-top:4px">
+      <button id="shShare" class="hidden">Guardar y compartir</button>
+      <button id="shSave">Guardar</button>
+      <button class="ghost hidden" id="shUnshare">Quitar de la comunidad</button>
+      <button class="ghost" id="shCancel">Cancelar</button>
+    </div>
+    <p class="hint" id="shHint"></p>
+  </div>
 </div>
 
 <script>
@@ -386,6 +491,7 @@ async function start() {
   fd.append("model", $("#model").value);
   fd.append("pages", $("#pages").value.trim());
   fd.append("glossary", $("#glossary").value);
+  fd.append("share", $("#share").checked);
   fd.append("api_key", apiKey);
   $("#go").disabled = true;
   try {
@@ -450,60 +556,180 @@ function openDone(j) {
   showViewer();
   $("#resultPanel").classList.remove("hidden");
   fetchHistory();
+  fetchCommunity();
 }
 
-// ---- Historial persistente ----
+// ---- Estantería lateral: tus papers como lomos + comunidad ----
+
+const LANG_HUES = {
+  es: "#e8a33d", en: "#4f83e0", fr: "#9a6bde", de: "#d46565", pt: "#4fb08a",
+  it: "#e0c34f", zh: "#d46fa8", ja: "#6bc0d4", ko: "#7f9be0", ru: "#b0805a",
+};
+
+function paperTitle(it) { return (it.title || "").trim() || it.filename || "sin título"; }
+function fmtFecha(t) {
+  const d = new Date(t * 1000);
+  return d.toLocaleDateString() + " " + d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
 
 async function fetchHistory() {
   try {
-    const r = await fetch("/api/history");
-    renderHistory(await r.json());
+    renderShelf(await (await fetch("/api/history")).json());
   } catch {}
 }
 
-function renderHistory(items) {
-  const box = $("#histList");
-  $("#histCount").textContent = items.length ? `${items.length} traducciones guardadas` : "";
+function renderShelf(items) {
+  const box = $("#spines");
   if (!items.length) {
-    box.innerHTML = `<div class="histMeta" style="padding:4px 0">Todavía no tradujiste nada. Arrastrá un PDF arriba.</div>`;
+    box.innerHTML = `<div class="shelfEmpty">La estantería está vacía.<br>Traducí tu primer paper 👇</div>`;
     return;
   }
   box.innerHTML = items.map(it => {
-    const fecha = new Date(it.created * 1000).toLocaleDateString() + " " +
-      new Date(it.created * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-    const modelo = it.model || it.provider || "";
-    return `<div class="histItem">
-      <div>
-        <div class="histName">${esc(it.filename)}</div>
-        <div class="histMeta">${fecha} · ${esc(it.source_name)}→${esc(it.to)} · ${esc(modelo)} · ${it.pages} págs</div>
-      </div>
-      <div class="histAct">
-        <button class="ghost mini" data-open="${it.id}">Abrir</button>
-        <a class="mini-link" href="/api/jobs/${it.id}/download" download title="Descargar traducido">⬇ ${esc(it.to)}</a>
-        <a class="mini-link" href="/api/jobs/${it.id}/original" download title="Descargar original">⬇ orig</a>
-        <button class="ghost mini danger" data-del="${it.id}" title="Borrar del historial">✕</button>
-      </div>
+    const hue = LANG_HUES[it.to] || "#6e7681";
+    const tip = `${paperTitle(it)}\n${it.authors || "—"}\n${fmtFecha(it.created)} · ${it.pages} págs`;
+    return `<div class="spine${it.id === jobId ? " active" : ""}" data-open="${it.id}" style="background:${hue}" title="${esc(tip)}">
+      <span class="spineT">${esc(paperTitle(it))}</span>
+      <span class="spineLang">${esc((it.to || "?").toUpperCase())}</span>
+      <span class="spineActs">
+        <button type="button" data-edit="${it.id}" title="${it.shared ? "Editar / dejar de compartir" : "Compartir con la comunidad"}">${it.shared ? "🌐" : "＋"}</button>
+        <button type="button" data-del="${it.id}" title="Borrar del historial">✕</button>
+      </span>
     </div>`;
   }).join("");
 }
 
-$("#histList").addEventListener("click", async e => {
-  const open = e.target.closest("[data-open]");
+$("#spines").addEventListener("click", async e => {
   const del = e.target.closest("[data-del]");
-  if (open) {
+  const edit = e.target.closest("[data-edit]");
+  const spine = e.target.closest("[data-open]");
+  if (del) {
+    await fetch("/api/jobs/" + del.dataset.del, { method: "DELETE" });
+    if (jobId === del.dataset.del && !$("#resultPanel").classList.contains("hidden")) reset();
+    fetchHistory(); fetchCommunity();
+    return;
+  }
+  if (edit) {
     try {
-      const r = await fetch("/api/jobs/" + open.dataset.open);
+      const r = await fetch("/api/jobs/" + edit.dataset.edit);
+      if (r.ok) openShareModal(await r.json());
+    } catch {}
+    return;
+  }
+  if (spine) {
+    try {
+      const r = await fetch("/api/jobs/" + spine.dataset.open);
       if (!r.ok) { fetchHistory(); return; }
       $("#uploadPanel").classList.add("hidden");
       openDone(await r.json());
     } catch {}
   }
-  if (del) {
-    await fetch("/api/jobs/" + del.dataset.del, { method: "DELETE" });
-    if (jobId === del.dataset.del && !$("#resultPanel").classList.contains("hidden")) reset();
-    fetchHistory();
-  }
 });
+
+// Comunidad: biblioteca compartida con buscador
+let comTimer = null;
+function fetchCommunity() {
+  const q = $("#comSearch").value.trim();
+  fetch("/api/community?q=" + encodeURIComponent(q))
+    .then(r => r.json())
+    .then(renderCommunity).catch(() => {});
+}
+function renderCommunity(items) {
+  $("#tabCom").textContent = items.length ? `Comunidad ${items.length}` : "Comunidad";
+  const box = $("#comList");
+  if (!items.length) {
+    box.innerHTML = `<div class="shelfEmpty">${$("#comSearch").value.trim() ? "Sin resultados." : "Todavía no hay papers compartidos.<br>Tocá ＋ sobre un lomo para compartir el primero."}</div>`;
+    return;
+  }
+  box.innerHTML = items.map(it => {
+    const kw = (it.keywords || "").split(",").map(s => s.trim()).filter(Boolean);
+    return `<div class="comItem" data-open="${it.id}">
+      <div class="comTitle">${esc(paperTitle(it))}</div>
+      <div class="comMeta">${esc(it.authors || "autores no cargados")}<br>${esc(it.source_name || "?")}→${esc(it.to)} · ${it.pages} págs · ${esc(it.model || it.provider || "")}</div>
+      ${kw.length ? `<div class="comKw">${kw.map(k => `<b>#${esc(k)}</b>`).join(" ")}</div>` : ""}
+      <div class="comActs">
+        <button type="button" class="ghost mini" data-open="${it.id}">Abrir</button>
+        <a class="mini-link" href="/api/jobs/${it.id}/download" download>⬇ PDF</a>
+      </div>
+    </div>`;
+  }).join("");
+}
+$("#comSearch").addEventListener("input", () => {
+  clearTimeout(comTimer);
+  comTimer = setTimeout(fetchCommunity, 250);
+});
+$("#comList").addEventListener("click", async e => {
+  const open = e.target.closest("[data-open]");
+  if (!open) return;
+  try {
+    const r = await fetch("/api/jobs/" + open.dataset.open);
+    if (!r.ok) { fetchCommunity(); return; }
+    $("#uploadPanel").classList.add("hidden");
+    openDone(await r.json());
+  } catch {}
+});
+
+// Pestañas de la estantería
+$("#tabMine").onclick = () => {
+  $("#shelf").classList.remove("com");
+  $("#tabMine").classList.add("active");
+  $("#tabCom").classList.remove("active");
+};
+$("#tabCom").onclick = () => {
+  $("#shelf").classList.add("com");
+  $("#tabCom").classList.add("active");
+  $("#tabMine").classList.remove("active");
+  fetchCommunity();
+};
+
+// Modal: editar título/autores/keywords y compartir
+let shareJobId = null;
+function openShareModal(j) {
+  shareJobId = j.id;
+  $("#shTitle").value = j.title || "";
+  $("#shAuthors").value = j.authors || "";
+  $("#shKeywords").value = j.keywords || "";
+  const shared = !!j.shared;
+  $("#shHead").textContent = shared ? "Editar paper compartido" : "Compartir con la comunidad";
+  $("#shShare").classList.toggle("hidden", shared);
+  $("#shSave").classList.toggle("ghost", !shared);
+  $("#shUnshare").classList.toggle("hidden", !shared);
+  $("#shHint").textContent = "";
+  $("#shareModal").classList.remove("hidden");
+}
+function closeShareModal() {
+  $("#shareModal").classList.add("hidden");
+  shareJobId = null;
+}
+async function saveShareModal(share) {
+  if (!shareJobId) return;
+  const body = JSON.stringify({
+    title: $("#shTitle").value,
+    authors: $("#shAuthors").value,
+    keywords: $("#shKeywords").value,
+  });
+  const r = await fetch(share ? `/api/jobs/${shareJobId}/share` : `/api/jobs/${shareJobId}/meta`, {
+    method: share ? "POST" : "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body,
+  });
+  if (!r.ok) {
+    const d = await r.json().catch(() => ({}));
+    $("#shHint").textContent = d.detail || "No se pudo guardar.";
+    return;
+  }
+  closeShareModal();
+  fetchHistory(); fetchCommunity();
+}
+$("#shShare").onclick = () => saveShareModal(true);
+$("#shSave").onclick = () => saveShareModal(false);
+$("#shUnshare").onclick = async () => {
+  if (!shareJobId) return;
+  await fetch(`/api/jobs/${shareJobId}/share`, { method: "DELETE" });
+  closeShareModal();
+  fetchHistory(); fetchCommunity();
+};
+$("#shCancel").onclick = closeShareModal;
+$("#shareModal").onclick = e => { if (e.target.id === "shareModal") closeShareModal(); };
 
 // ---- Visor: pdf.js con tracking real de página/scroll; fallback a iframe nativo ----
 // pdfjsLib: null = sin intentar, false = falló (sin internet) → modo nativo.
@@ -805,9 +1031,12 @@ function reset() {
   $("#uploadPanel").classList.remove("hidden");
   showErr("");
   $("#go").disabled = !file;
+  jobId = null;
+  fetchHistory();
 }
 
 fetchHistory();
+fetchCommunity();
 </script>
 </body>
 </html>
