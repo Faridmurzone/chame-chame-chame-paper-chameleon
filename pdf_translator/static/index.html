@@ -3,7 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>pdf-translator</title>
+<link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16.png">
+<title>Paper Chameleon</title>
 <style>
   :root{
     --bg:#0d1117; --panel:#161b22; --border:#30363d; --text:#e6edf3;
@@ -15,7 +17,8 @@
     font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
   }
   .wrap{max-width:900px; margin:0 auto; padding:44px 20px 80px}
-  h1{font-size:22px; margin:0 0 4px; letter-spacing:-.01em}
+  h1{font-size:22px; margin:0 0 4px; letter-spacing:-.01em; display:flex; align-items:center; gap:10px}
+  .logoImg{width:36px; height:36px; display:block; flex-shrink:0}
   .sub{color:var(--muted); margin:0 0 28px}
   .sub code{color:var(--text); background:var(--panel); border:1px solid var(--border); border-radius:4px; padding:1px 6px}
   .panel{background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:20px; margin-bottom:16px}
@@ -111,8 +114,8 @@
 </head>
 <body>
 <div class="wrap">
-  <h1>pdf-translator</h1>
-  <p class="sub">Traduce PDFs preservando layout, fórmulas, gráficos e imágenes. Pipeline: <code>extract → classify → translate → render</code>.</p>
+  <h1><img class="logoImg" src="/static/logo.png" alt="">Paper Chameleon</h1>
+  <p class="sub">Traduce PDFs preservando layout, fórmulas, gráficos e imágenes — el camaleón cambia el idioma, el paper queda igual. Pipeline: <code>extract → classify → translate → render</code>.</p>
 
   <!-- Historial -->
   <div id="histPanel" class="panel">

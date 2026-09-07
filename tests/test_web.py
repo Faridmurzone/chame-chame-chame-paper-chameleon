@@ -45,8 +45,14 @@ def _wait_done(client: TestClient, job_id: str, timeout: float = 15.0) -> dict:
 def test_index_served(client):
     r = client.get("/")
     assert r.status_code == 200
-    assert "pdf-translator" in r.text
+    assert "Paper Chameleon" in r.text
     assert "api/translate" in r.text
+
+
+def test_static_assets_served(client):
+    for path in ("/static/logo.png", "/static/favicon-16.png", "/static/favicon-32.png"):
+        r = client.get(path)
+        assert r.status_code == 200
 
 
 def test_meta(client):

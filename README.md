@@ -1,4 +1,10 @@
-# pdf-translator
+<div align="center">
+  <img src="pdf_translator/static/logo.png" width="170" alt="Paper Chameleon">
+</div>
+
+# Paper Chameleon
+
+> El camaleón de los papers: el texto cambia de idioma, el layout queda igual.
 
 Traduce PDFs — principalmente papers académicos — manteniendo el layout original:
 las imágenes, fórmulas, tablas y gráficos quedan exactamente donde estaban, y solo

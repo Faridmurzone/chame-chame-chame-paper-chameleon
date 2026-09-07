@@ -31,6 +31,7 @@ from typing import Any
 import fitz
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from .cli import LANG_NAMES, _parse_pages
 from .lang_detect import detect_document_language
@@ -76,7 +77,8 @@ MODEL_CATALOG: dict[str, list[dict[str, str]]] = {
     ],
 }
 
-app = FastAPI(title="pdf-translator", docs_url=None, redoc_url=None)
+app = FastAPI(title="Paper Chameleon", docs_url=None, redoc_url=None)
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 _lock = threading.Lock()
 _jobs: dict[str, dict[str, Any]] = {}
@@ -400,7 +402,7 @@ def main(argv: list[str] | None = None) -> int:
 
     parser = argparse.ArgumentParser(
         prog="pdf-translate-web",
-        description="UI web para pdf-translator: subí un PDF y descargá la traducción.",
+        description="Paper Chameleon: subí un PDF y descargá la traducción.",
     )
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8000)
@@ -408,7 +410,7 @@ def main(argv: list[str] | None = None) -> int:
 
     import uvicorn
 
-    print(f"pdf-translator web → http://{args.host}:{args.port}", flush=True)
+    print(f"Paper Chameleon → http://{args.host}:{args.port}", flush=True)
     print(f"historial y PDFs en {DATA_DIR}", flush=True)
     uvicorn.run(app, host=args.host, port=args.port, log_level="warning")
     return 0
