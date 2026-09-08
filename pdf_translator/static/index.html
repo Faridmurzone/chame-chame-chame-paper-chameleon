@@ -172,9 +172,10 @@
   .comKw{font-size:10.5px; color:var(--muted); margin-top:4px}
   .comKw b{color:var(--accent); font-weight:500}
   .comActs{display:flex; gap:6px; margin-top:7px}
-  /* modal compartir / editar */
-  .modal{position:fixed; inset:0; z-index:60; background:rgba(4,8,14,.62); display:flex; align-items:center; justify-content:center}
-  .modalBox{width:min(430px,92vw); display:flex; flex-direction:column; gap:10px}
+  /* edición inline de metadatos del paper abierto (sin modal) */
+  #editRow{gap:8px}
+  #editRow input{flex:1; width:auto; min-width:170px}
+  #editRow #edTitle{flex-basis:100%}
   @media (max-width:820px){
     .layout{flex-direction:column-reverse}
     .shelf{position:static; width:auto; height:132px; border-left:none; border-top:1px solid var(--border)}
@@ -282,6 +283,13 @@
       <div id="pdfScroll" class="pdfScroll"></div>
     </div>
     <iframe id="viewer" title="Previsualización del PDF" hidden></iframe>
+    <div class="row hidden" id="editRow">
+      <input id="edTitle" placeholder="Título del paper (vacío = no cambia)">
+      <input id="edAuthors" placeholder="Autores — Apellido N., Apellido N.">
+      <input id="edKeywords" placeholder="Keywords separadas por comas">
+      <button id="edSave">Guardar</button>
+      <button class="ghost" id="edCancel">Cancelar</button>
+    </div>
     <div class="row">
       <button class="ghost" id="editMeta" title="Editar título, autores y keywords">✎ Editar datos</button>
       <a class="dl" id="dl" href="#" download>⬇ Descargar traducido</a>
@@ -305,29 +313,6 @@
     <div class="comList" id="comList"></div>
   </div>
 </aside>
-</div>
-
-<div class="modal hidden" id="shareModal">
-  <div class="modalBox panel">
-    <strong id="shHead">Editar paper</strong>
-    <div>
-      <label for="shTitle">Título del paper</label>
-      <input id="shTitle" spellcheck="false" placeholder="vacío = no cambia">
-    </div>
-    <div>
-      <label for="shAuthors">Autores</label>
-      <input id="shAuthors" spellcheck="false" placeholder="Smith J., Doe A.">
-    </div>
-    <div>
-      <label for="shKeywords">Keywords (separadas por comas)</label>
-      <input id="shKeywords" spellcheck="false" placeholder="transformers, attention, NLP">
-    </div>
-    <div class="row" style="margin-top:4px">
-      <button id="shSave">Guardar</button>
-      <button class="ghost" id="shCancel">Cancelar</button>
-    </div>
-    <p class="hint" id="shHint"></p>
-  </div>
 </div>
 
 <script>
@@ -457,7 +442,12 @@ $("#editMeta").onclick = async () => {
   if (!jobId) return;
   try {
     const r = await fetch("/api/jobs/" + jobId);
-    if (r.ok) openShareModal(await r.json());
+    if (!r.ok) return;
+    const j = await r.json();
+    $("#edTitle").value = j.title || "";
+    $("#edAuthors").value = j.authors || "";
+    $("#edKeywords").value = j.keywords || "";
+    $("#editRow").classList.remove("hidden");
   } catch {}
 };
 
@@ -708,43 +698,21 @@ $("#tabCom").onclick = () => {
   fetchCommunity();
 };
 
-// Modal: editar título/autores/keywords y compartir
-let shareJobId = null;
-function openShareModal(j) {
-  shareJobId = j.id;
-  $("#shTitle").value = j.title || "";
-  $("#shAuthors").value = j.authors || "";
-  $("#shKeywords").value = j.keywords || "";
-  $("#shHead").textContent = "Editar paper";
-  $("#shHint").textContent = "";
-  $("#shareModal").classList.remove("hidden");
-}
-function closeShareModal() {
-  $("#shareModal").classList.add("hidden");
-  shareJobId = null;
-}
-async function saveShareModal() {
-  if (!shareJobId) return;
-  const r = await fetch(`/api/jobs/${shareJobId}/meta`, {
+// Edición inline de metadatos del paper abierto (sin modal)
+$("#edCancel").onclick = () => $("#editRow").classList.add("hidden");
+$("#edSave").onclick = async () => {
+  const r = await fetch(`/api/jobs/${jobId}/meta`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      title: $("#shTitle").value,
-      authors: $("#shAuthors").value,
-      keywords: $("#shKeywords").value,
+      title: $("#edTitle").value,
+      authors: $("#edAuthors").value,
+      keywords: $("#edKeywords").value,
     }),
   });
-  if (!r.ok) {
-    const d = await r.json().catch(() => ({}));
-    $("#shHint").textContent = d.detail || "No se pudo guardar.";
-    return;
-  }
-  closeShareModal();
+  if (r.ok) $("#editRow").classList.add("hidden");
   fetchHistory(); fetchCommunity();
-}
-$("#shSave").onclick = saveShareModal;
-$("#shCancel").onclick = closeShareModal;
-$("#shareModal").onclick = e => { if (e.target.id === "shareModal") closeShareModal(); };
+};
 
 // ---- Visor: pdf.js con tracking real de página/scroll; fallback a iframe nativo ----
 // pdfjsLib: null = sin intentar, false = falló (sin internet) → modo nativo.
@@ -1035,6 +1003,7 @@ function reset() {
   $("#thumbs").innerHTML = "";
   $("#errActions").classList.add("hidden");
   $("#jerr").textContent = "";
+  $("#editRow").classList.add("hidden");
   const bar = $("#bar");
   bar.classList.remove("errbar");
   bar.classList.add("indet");
