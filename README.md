@@ -7,8 +7,10 @@
 > El camaleón de los papers: el texto cambia de idioma, el layout queda igual.
 
 <div align="center">
-  <video src="docs/paper_translate_video.mp4" controls width="640" preload="metadata"></video>
-  <p><sub>¿No reproduce inline? <a href="docs/paper_translate_video.mp4">Miralo directo acá</a>.</sub></p>
+  <a href="https://youtu.be/8oOR4v3aNY8" title="Ver la demo en YouTube">
+    <img src="https://img.youtube.com/vi/8oOR4v3aNY8/maxresdefault.jpg" width="640" alt="Demo de Paper Chameleon">
+  </a>
+  <p><sub>▶ <a href="https://youtu.be/8oOR4v3aNY8">Ver la demo</a> en YouTube</sub></p>
 </div>
 
 El conocimiento de frontera se publica en inglés. Si no es tu lengua materna, leer
