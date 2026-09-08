@@ -338,3 +338,80 @@ def make_translator(
 ) -> BaseBatchTranslator:
     provider = provider if provider in PROVIDER_CLASSES else "anthropic"
     return PROVIDER_CLASSES[provider](model=model or "", **kwargs)
+
+
+# ---- Metadatos de paper con una llamada LLM (biblioteca comunitaria) ----
+
+METADATA_PROMPT = (
+    "Sos un bibliotecario técnico. Recibís el texto de la primera página de un paper "
+    "académico y devolvés EXCLUSIVAMENTE un JSON con esta forma exacta:\n"
+    '{"title": "título completo del paper", "authors": "Apellido N., Apellido N.", '
+    '"keywords": "keyword1, keyword2, keyword3"}\n'
+    "Reglas: título tal como aparece, sin cortes ni saltos internos; autores en formato "
+    "'Apellido N.' separados por coma (máximo 6, en orden de aparición); 3 a 6 keywords "
+    "en inglés y minúsculas que describan el dominio del paper. Si un dato no figura en "
+    "el texto, devolvés string vacío para ese campo."
+)
+
+
+def extract_paper_metadata(
+    provider: str = "anthropic", model: str = "", api_key: str = "", text: str = ""
+) -> dict:
+    """Una llamada al LLM del proveedor: título, autores y keywords del paper.
+
+    Levanta la excepción del SDK si algo falla; quien llama decide el fallback.
+    """
+    text = (text or "").strip()[:6000]
+    if not text:
+        raise ValueError("sin texto para extraer metadatos")
+    if provider == "anthropic":
+        import anthropic
+
+        client = anthropic.Anthropic(api_key=api_key) if api_key else anthropic.Anthropic()
+        resp = client.messages.create(
+            model=model or DEFAULT_MODEL,
+            max_tokens=600,
+            system=METADATA_PROMPT,
+            messages=[{"role": "user", "content": text}],
+        )
+        raw = next(b.text for b in resp.content if b.type == "text")
+    elif provider == "google":
+        from google import genai
+        from google.genai import types
+
+        client = genai.Client(api_key=api_key) if api_key else genai.Client()
+        resp = client.models.generate_content(
+            model=model or "gemini-2.5-flash",
+            contents=text,
+            config=types.GenerateContentConfig(
+                system_instruction=METADATA_PROMPT,
+                response_mime_type="application/json",
+                temperature=0.0,
+                max_output_tokens=600,
+            ),
+        )
+        raw = resp.text or ""
+    else:  # openai y compatibles (deepseek)
+        from openai import OpenAI
+
+        base = "https://api.deepseek.com" if provider == "deepseek" else None
+        client = OpenAI(api_key=api_key, base_url=base)
+        token_kw = (
+            {"max_tokens": 600} if provider == "deepseek" else {"max_completion_tokens": 600}
+        )
+        resp = client.chat.completions.create(
+            model=model or ("deepseek-chat" if provider == "deepseek" else "gpt-5.1"),
+            messages=[
+                {"role": "system", "content": METADATA_PROMPT},
+                {"role": "user", "content": text},
+            ],
+            response_format={"type": "json_object"},
+            **token_kw,
+        )
+        raw = resp.choices[0].message.content or ""
+    data = json.loads(_extract_json(raw))
+    return {
+        "title": str(data.get("title") or "").strip(),
+        "authors": str(data.get("authors") or "").strip(),
+        "keywords": str(data.get("keywords") or "").strip(),
+    }

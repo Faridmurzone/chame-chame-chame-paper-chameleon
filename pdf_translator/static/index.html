@@ -283,6 +283,7 @@
     </div>
     <iframe id="viewer" title="Previsualización del PDF" hidden></iframe>
     <div class="row">
+      <button class="ghost" id="editMeta" title="Editar título, autores y keywords">✎ Editar datos</button>
       <a class="dl" id="dl" href="#" download>⬇ Descargar traducido</a>
       <a class="dlghost" id="dlOrig" href="#" download>⬇ Descargar original</a>
       <button class="ghost" id="again">Traducir otro PDF</button>
@@ -308,10 +309,10 @@
 
 <div class="modal hidden" id="shareModal">
   <div class="modalBox panel">
-    <strong id="shHead">Compartir con la comunidad</strong>
+    <strong id="shHead">Editar paper</strong>
     <div>
       <label for="shTitle">Título del paper</label>
-      <input id="shTitle" spellcheck="false" placeholder="dejá vacío para extraerlo del PDF">
+      <input id="shTitle" spellcheck="false" placeholder="vacío = no cambia">
     </div>
     <div>
       <label for="shAuthors">Autores</label>
@@ -322,9 +323,7 @@
       <input id="shKeywords" spellcheck="false" placeholder="transformers, attention, NLP">
     </div>
     <div class="row" style="margin-top:4px">
-      <button id="shShare" class="hidden">Guardar y compartir</button>
       <button id="shSave">Guardar</button>
-      <button class="ghost hidden" id="shUnshare">Quitar de la comunidad</button>
       <button class="ghost" id="shCancel">Cancelar</button>
     </div>
     <p class="hint" id="shHint"></p>
@@ -454,6 +453,13 @@ function setFile(f) {
 $("#go").onclick = start;
 $("#again").onclick = reset;
 $("#back").onclick = reset;
+$("#editMeta").onclick = async () => {
+  if (!jobId) return;
+  try {
+    const r = await fetch("/api/jobs/" + jobId);
+    if (r.ok) openShareModal(await r.json());
+  } catch {}
+};
 
 function esc(s) {
   return s.replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -591,7 +597,7 @@ function renderShelf(items) {
       <span class="spineT">${esc(paperTitle(it))}</span>
       <span class="spineLang">${esc((it.to || "?").toUpperCase())}</span>
       <span class="spineActs">
-        <button type="button" data-edit="${it.id}" title="${it.shared ? "Editar / dejar de compartir" : "Compartir con la comunidad"}">${it.shared ? "🌐" : "＋"}</button>
+        <button type="button" data-share="${it.id}" title="${it.shared ? "En la comunidad — ver" : "Compartir: un clic, el LLM completa los datos"}">${it.shared ? "🌐" : "＋"}</button>
         <button type="button" data-del="${it.id}" title="Borrar del historial">✕</button>
       </span>
     </div>`;
@@ -600,7 +606,7 @@ function renderShelf(items) {
 
 $("#spines").addEventListener("click", async e => {
   const del = e.target.closest("[data-del]");
-  const edit = e.target.closest("[data-edit]");
+  const shareBtn = e.target.closest("[data-share]");
   const spine = e.target.closest("[data-open]");
   if (del) {
     await fetch("/api/jobs/" + del.dataset.del, { method: "DELETE" });
@@ -608,11 +614,25 @@ $("#spines").addEventListener("click", async e => {
     fetchHistory(); fetchCommunity();
     return;
   }
-  if (edit) {
+  if (shareBtn) {
     try {
-      const r = await fetch("/api/jobs/" + edit.dataset.edit);
-      if (r.ok) openShareModal(await r.json());
+      const r = await fetch("/api/jobs/" + shareBtn.dataset.share);
+      if (r.ok) {
+        const j = await r.json();
+        if (j.shared) {
+          $("#tabCom").click();  // ya está en la comunidad: mostrala
+        } else {
+          // Un clic: el server completa título/autores/keywords con el LLM
+          const key = localStorage.getItem("pdftranslate.apikey." + (j.provider || "")) || "";
+          await fetch(`/api/jobs/${j.id}/share`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ api_key: key }),
+          });
+        }
+      }
     } catch {}
+    fetchHistory(); fetchCommunity();
     return;
   }
   if (spine) {
@@ -649,6 +669,7 @@ function renderCommunity(items) {
       <div class="comActs">
         <button type="button" class="ghost mini" data-open="${it.id}">Abrir</button>
         <a class="mini-link" href="/api/jobs/${it.id}/download" download>⬇ PDF</a>
+        <button type="button" class="ghost mini danger" data-unshare="${it.id}" title="Quitar de la comunidad">Quitar</button>
       </div>
     </div>`;
   }).join("");
@@ -658,6 +679,12 @@ $("#comSearch").addEventListener("input", () => {
   comTimer = setTimeout(fetchCommunity, 250);
 });
 $("#comList").addEventListener("click", async e => {
+  const un = e.target.closest("[data-unshare]");
+  if (un) {
+    await fetch(`/api/jobs/${un.dataset.unshare}/share`, { method: "DELETE" });
+    fetchHistory(); fetchCommunity();
+    return;
+  }
   const open = e.target.closest("[data-open]");
   if (!open) return;
   try {
@@ -688,11 +715,7 @@ function openShareModal(j) {
   $("#shTitle").value = j.title || "";
   $("#shAuthors").value = j.authors || "";
   $("#shKeywords").value = j.keywords || "";
-  const shared = !!j.shared;
-  $("#shHead").textContent = shared ? "Editar paper compartido" : "Compartir con la comunidad";
-  $("#shShare").classList.toggle("hidden", shared);
-  $("#shSave").classList.toggle("ghost", !shared);
-  $("#shUnshare").classList.toggle("hidden", !shared);
+  $("#shHead").textContent = "Editar paper";
   $("#shHint").textContent = "";
   $("#shareModal").classList.remove("hidden");
 }
@@ -700,17 +723,16 @@ function closeShareModal() {
   $("#shareModal").classList.add("hidden");
   shareJobId = null;
 }
-async function saveShareModal(share) {
+async function saveShareModal() {
   if (!shareJobId) return;
-  const body = JSON.stringify({
-    title: $("#shTitle").value,
-    authors: $("#shAuthors").value,
-    keywords: $("#shKeywords").value,
-  });
-  const r = await fetch(share ? `/api/jobs/${shareJobId}/share` : `/api/jobs/${shareJobId}/meta`, {
-    method: share ? "POST" : "PATCH",
+  const r = await fetch(`/api/jobs/${shareJobId}/meta`, {
+    method: "PATCH",
     headers: { "Content-Type": "application/json" },
-    body,
+    body: JSON.stringify({
+      title: $("#shTitle").value,
+      authors: $("#shAuthors").value,
+      keywords: $("#shKeywords").value,
+    }),
   });
   if (!r.ok) {
     const d = await r.json().catch(() => ({}));
@@ -720,14 +742,7 @@ async function saveShareModal(share) {
   closeShareModal();
   fetchHistory(); fetchCommunity();
 }
-$("#shShare").onclick = () => saveShareModal(true);
-$("#shSave").onclick = () => saveShareModal(false);
-$("#shUnshare").onclick = async () => {
-  if (!shareJobId) return;
-  await fetch(`/api/jobs/${shareJobId}/share`, { method: "DELETE" });
-  closeShareModal();
-  fetchHistory(); fetchCommunity();
-};
+$("#shSave").onclick = saveShareModal;
 $("#shCancel").onclick = closeShareModal;
 $("#shareModal").onclick = e => { if (e.target.id === "shareModal") closeShareModal(); };
 

@@ -26,6 +26,10 @@ def fake_api(client, monkeypatch):
 
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
     monkeypatch.setattr(web, "make_translator", lambda **kw: MockTranslator())
+    monkeypatch.setattr(
+        web, "extract_paper_metadata",
+        lambda **kw: {"title": "Titulo LLM", "authors": "Autor LLM", "keywords": "llm, test"},
+    )
     return client
 
 
@@ -333,6 +337,17 @@ def test_dedup_with_share_propagates(fake_api):
     )
     assert r2.json() == {"job_id": job_id, "dedup": "true"}
     assert any(c["id"] == job_id for c in fake_api.get("/api/community").json())
+
+
+def test_share_metadata_from_llm(fake_api):
+    # Compartir con checkbox → al terminar, el LLM completa título/autores/keywords
+    job_id = _done_job(fake_api, f"llm-meta-{time.time()}", share=True)
+    entry = next(h for h in fake_api.get("/api/history").json() if h["id"] == job_id)
+    assert entry["title"] == "Titulo LLM"
+    assert entry["authors"] == "Autor LLM"
+    assert entry["keywords"] == "llm, test"
+    com = next(c for c in fake_api.get("/api/community").json() if c["id"] == job_id)
+    assert com["title"] == "Titulo LLM"
 
 
 def test_share_requires_done(client, monkeypatch):

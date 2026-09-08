@@ -22,9 +22,12 @@ A un costado corre una **estantería** con tus papers traducidos como lomos de
 libros: título en vertical, color según idioma destino, y se "jalan" hacia afuera
 al pasar el mouse. El título se extrae del PDF (metadata o el texto más grande de
 la primera página; si nada, el nombre de archivo) y es editable, igual que los
-autores y keywords. Con el checkbox **Compartir con la comunidad** — o desde ＋ en
-cada lomo — el paper entra a la biblioteca comunitaria: un buscador por título,
-autores y keywords sobre todo lo compartido. Los mismos PDFs no se vuelven a
+autores y keywords. Con el checkbox **Compartir con la comunidad** — o un clic en
+＋ sobre un lomo — el paper entra a la biblioteca comunitaria y el LLM del
+proveedor elegido extrae título, autores y keywords automáticamente (una llamada
+corta con la primera página; si no hay key, cae a la extracción heurística del
+PDF, y todo queda editable después). La biblioteca se busca por título, autores
+y keywords. Los mismos PDFs no se vuelven a
 traducir (dedup por contenido) y podés reabrir, descargar o borrar cada traducción.
 
 ```bash

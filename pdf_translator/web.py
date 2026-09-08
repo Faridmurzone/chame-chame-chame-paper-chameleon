@@ -40,7 +40,7 @@ from fastapi.staticfiles import StaticFiles
 from .cli import LANG_NAMES, _parse_pages
 from .lang_detect import detect_document_language
 from .pipeline import translate_pdf
-from .translate import PROVIDER_ENV, make_translator
+from .translate import PROVIDER_ENV, extract_paper_metadata, make_translator
 
 STATIC_DIR = Path(__file__).parent / "static"
 DATA_DIR = Path(os.environ.get("PDF_TRANSLATE_DATA_DIR") or Path.home() / ".pdf-translator")
@@ -193,6 +193,29 @@ def _paper_meta_from_doc(doc: "fitz.Document", fallback: str) -> tuple[str, str]
     return title or fallback, authors
 
 
+def _page1_text(job_id: str, limit: int = 6000) -> str:
+    try:
+        doc = fitz.open(str(JOBS_DIR / job_id / "input.pdf"))
+        text = doc[0].get_text() if doc.page_count else ""
+        doc.close()
+        return text[:limit]
+    except Exception:
+        return ""
+
+
+def _llm_paper_meta(job: dict[str, Any], api_key: str) -> dict[str, str] | None:
+    """Título/autores/keywords con una llamada LLM. None si falla (hay fallback)."""
+    try:
+        return extract_paper_metadata(
+            provider=job.get("provider", "anthropic"),
+            model=job.get("model", "") or "",
+            api_key=api_key,
+            text=_page1_text(job["id"]),
+        )
+    except Exception:
+        return None
+
+
 def _run(
     job_id: str,
     input_path: Path,
@@ -238,6 +261,12 @@ def _run(
                 f"{stats['skipped']} preservados (fórmulas, código, números, imágenes)"
             ),
         )
+        # Compartido: título/autores/keywords finos con una llamada LLM.
+        # Si falla, quedan los extraídos heurísticamente al subir el PDF.
+        if opts.get("share"):
+            llm = _llm_paper_meta(_snapshot(job_id), opts.get("api_key", ""))
+            if llm and any(llm.values()):
+                _update(job_id, **{k: v for k, v in llm.items() if v})
         _save_meta(job_id)
     except Exception as e:  # noqa: BLE001 — el error viaja al frontend
         _update(job_id, status="error", error=str(e))
@@ -347,6 +376,7 @@ async def translate(
         "to": to,
         "glossary": glossary_terms,
         "pages": page_indexes,
+        "share": share,
         "api_key": api_key.strip(),
     }
     threading.Thread(target=_run, args=(job_id, input_path, output_path, opts), daemon=True).start()
@@ -427,9 +457,16 @@ def _apply_share(job_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     job = _snapshot(job_id)
     if job["status"] != "done":
         raise HTTPException(400, "Solo se pueden compartir traducciones completas.")
-    title = (payload.get("title") or "").strip() or job.get("title", "")
-    authors = (payload.get("authors") or "").strip() or job.get("authors", "")
-    keywords = (payload.get("keywords") or "").strip() or job.get("keywords", "")
+    # Prioridad: datos editados por el usuario > LLM > heurística del PDF.
+    title = (payload.get("title") or "").strip()
+    authors = (payload.get("authors") or "").strip()
+    keywords = (payload.get("keywords") or "").strip()
+    api_key = (payload.get("api_key") or "").strip()
+    if api_key and not (title and authors and keywords):
+        llm = _llm_paper_meta(job, api_key) or {}
+        title = title or llm.get("title", "")
+        authors = authors or llm.get("authors", "")
+        keywords = keywords or llm.get("keywords", "")
     if not title:
         try:
             doc = fitz.open(str(JOBS_DIR / job_id / "input.pdf"))
@@ -437,7 +474,7 @@ def _apply_share(job_id: str, payload: dict[str, Any]) -> dict[str, Any]:
             doc.close()
         except Exception:
             auto_title, auto_authors = "", ""
-        title = auto_title or job.get("filename", "")
+        title = title or auto_title or job.get("title", "") or job.get("filename", "")
         authors = authors or auto_authors
     _update(
         job_id,
