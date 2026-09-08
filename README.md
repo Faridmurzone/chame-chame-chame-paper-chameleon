@@ -75,6 +75,26 @@ mostrada ofuscada) o se exporta como variable de entorno:
 El idioma origen admite **autodetección** (`--source auto` en CLI, "Auto-detectar"
 en la UI): muestrea las primeras páginas con langdetect.
 
+## Deploy como hub (Docker)
+
+La misma app sirve como **hub comunitario**: en un server compartido, la estantería
+y la biblioteca de la comunidad son de todos los que acceden.
+
+```bash
+cp .env.example .env      # y completá la key (o keys) del hub
+docker compose up -d --build
+```
+
+- La UI queda en `http://<host>:8000`; los datos de todos (PDFs, historial,
+  comunidad) persisten en `./data` del host (volume `/data` del contenedor).
+- **Keys**: podés dejar las variables vacías y que cada usuario ingrese su key en
+  la UI (viaja solo con sus pedidos, nunca se guarda en el server), o configurar
+  una key del hub en `.env` — en ese caso, cualquiera con acceso al server
+  traduce gastándola.
+- **Auth**: el server no trae login. Para un hub público, poné un reverse proxy
+  con autenticación delante (Caddy `basic_auth`, nginx) o dejalo en una red
+  privada/VPN (Tailscale) para un grupo cerrado.
+
 ## Cómo funciona
 
 El pipeline trabaja **in-place** sobre el PDF original, en cuatro etapas:

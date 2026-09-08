@@ -1,0 +1,25 @@
+services:
+  paper-chameleon:
+    build: .
+    image: paper-chameleon:latest
+    container_name: paper-chameleon
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/data
+    environment:
+      # Keys del HUB (opcionales): si están seteadas, cualquiera con acceso al
+      # server traduce gastando estas keys. Si preferís que cada usuario use
+      # la suya, dejalas vacías: se ingresan en la UI y viajan solo con cada
+      # request (nunca se guardan en el server).
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8000/api/meta', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
