@@ -12,6 +12,7 @@ API:
     GET  /api/jobs/{id}/original — PDF original
     GET  /api/history            — historial de traducciones completadas
     DELETE /api/jobs/{id}        — borra un job del historial
+    POST /api/jobs/{id}/retry    — reintenta un job con error (nueva key/proveedor/modelo)
     POST /api/jobs/{id}/share    — comparte la traducción con la comunidad
     DELETE /api/jobs/{id}/share  — deja de compartirla
     PATCH /api/jobs/{id}/meta    — edita título, autores y keywords
@@ -133,7 +134,7 @@ def _hydrate_history() -> None:
         if not path.is_dir():
             continue
         meta = _load_meta(path.name)
-        if meta and meta.get("status") == "done":
+        if meta and meta.get("status") in ("done", "error"):
             with _lock:
                 _jobs.setdefault(path.name, meta)
 
@@ -367,6 +368,8 @@ async def translate(
             "title": title,
             "authors": authors,
             "keywords": "",
+            # datos para reintentar tras un error (p.ej. key rechazada)
+            "retry_opts": {"pages": page_indexes, "glossary": glossary_terms},
         }
     opts = {
         "provider": provider,
@@ -386,7 +389,7 @@ async def translate(
 @app.get("/api/jobs/{job_id}")
 def job_status(job_id: str) -> dict[str, Any]:
     job = _snapshot(job_id)
-    return {k: v for k, v in job.items() if k not in ("output", "created")}
+    return {k: v for k, v in job.items() if k not in ("output", "created", "retry_opts")}
 
 
 @app.get("/api/jobs/{job_id}/download")
@@ -486,6 +489,54 @@ def _apply_share(job_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     )
     _save_meta(job_id)
     return {"ok": True, "title": title, "authors": authors, "keywords": keywords}
+
+
+@app.post("/api/jobs/{job_id}/retry")
+def job_retry(job_id: str, payload: dict = Body(...)) -> dict[str, Any]:
+    """Reintenta un job con error: nueva key/proveedor/modelo, mismos datos del paper."""
+    job = _snapshot(job_id)
+    if job.get("status") != "error":
+        raise HTTPException(409, "Solo se pueden reintentar jobs con error.")
+    input_path = JOBS_DIR / job_id / "input.pdf"
+    if not input_path.exists():
+        raise HTTPException(404, "El PDF original ya no existe (expiró).")
+    provider = payload.get("provider") or job.get("provider") or "anthropic"
+    provider = provider if provider in MODEL_CATALOG else "anthropic"
+    model = (payload.get("model") or job.get("model") or "").strip()
+    api_key = (payload.get("api_key") or "").strip() or os.environ.get(PROVIDER_ENV[provider])
+    if not api_key:
+        raise HTTPException(400, "Falta la API key para reintentar.")
+    base = job.get("retry_opts") or {}
+    opts = {
+        "provider": provider,
+        "model": model,
+        "source_name": job.get("source_name", ""),
+        "to": job.get("to", "es"),
+        "glossary": base.get("glossary", []),
+        "pages": base.get("pages") or None,
+        "share": bool(job.get("shared")),
+        "api_key": api_key,
+    }
+    out_name = f"{Path(job.get('filename') or 'paper').stem}.{job.get('to') or 'es'}.pdf"
+    with _lock:
+        if job_id in _jobs:
+            _jobs[job_id].update({
+                "status": "running",
+                "stage": "extract",
+                "current": 0,
+                "total": 0,
+                "message": "",
+                "error": None,
+                "provider": provider,
+                "model": model,
+                "out_name": out_name,
+            })
+    threading.Thread(
+        target=_run,
+        args=(job_id, input_path, JOBS_DIR / job_id / out_name, opts),
+        daemon=True,
+    ).start()
+    return {"ok": True}
 
 
 @app.post("/api/jobs/{job_id}/share")

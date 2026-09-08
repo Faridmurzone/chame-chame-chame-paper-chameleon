@@ -359,3 +359,55 @@ def test_share_requires_done(client, monkeypatch):
     job_id = r.json()["job_id"]
     assert _wait_done(client, job_id)["status"] == "error"
     assert client.post(f"/api/jobs/{job_id}/share", json={}).status_code == 400
+
+
+def test_retry_with_new_credentials(client, monkeypatch):
+    """Key rechazada → error → retry con nueva key/proveedor/modelo → done."""
+    from pdf_translator.translate import MockTranslator
+    import pdf_translator.web as web
+
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    r = client.post(
+        "/api/translate",
+        data={"to": "es", "pages": "1", "glossary": "transformer"},
+        files={"file": ("paper.pdf", _pdf_bytes(), "application/pdf")},
+    )
+    job_id = r.json()["job_id"]
+    assert _wait_done(client, job_id)["status"] == "error"
+
+    monkeypatch.setattr(web, "make_translator", lambda **kw: MockTranslator())
+    r = client.post(
+        f"/api/jobs/{job_id}/retry",
+        json={"provider": "anthropic", "model": "claude-haiku-4-5", "api_key": "sk-nueva"},
+    )
+    assert r.status_code == 200 and r.json()["ok"] is True
+    data = _wait_done(client, job_id)
+    assert data["status"] == "done", data
+    assert data["provider"] == "anthropic"
+    assert data["model"] == "claude-haiku-4-5"
+
+
+def test_retry_guardrails(client, monkeypatch):
+    from pdf_translator.translate import MockTranslator
+    import pdf_translator.web as web
+
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    # job inexistente
+    assert client.post("/api/jobs/zzzz/retry", json={"api_key": "k"}).status_code == 404
+    # sin key en el pedido ni en el entorno → 400
+    r = client.post(
+        "/api/translate", data={"to": "es"},
+        files={"file": ("paper.pdf", _pdf_bytes(), "application/pdf")},
+    )
+    job_id = r.json()["job_id"]
+    assert _wait_done(client, job_id)["status"] == "error"
+    assert client.post(f"/api/jobs/{job_id}/retry", json={}).status_code == 400
+
+    # con nueva key → done; un job done ya no se puede reintentar (409)
+    monkeypatch.setattr(web, "make_translator", lambda **kw: MockTranslator())
+    assert client.post(
+        f"/api/jobs/{job_id}/retry",
+        json={"provider": "anthropic", "api_key": "sk-nueva"},
+    ).status_code == 200
+    assert _wait_done(client, job_id)["status"] == "done"
+    assert client.post(f"/api/jobs/{job_id}/retry", json={"api_key": "k"}).status_code == 409

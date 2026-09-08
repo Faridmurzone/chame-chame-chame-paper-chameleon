@@ -247,6 +247,26 @@
     <strong id="stage">Subiendo…</strong>
     <div class="bar indet" id="bar"><div></div></div>
     <div class="msg err" id="jerr"></div>
+    <div id="recoverBox" class="hidden">
+      <p class="hint" style="margin:10px 0 8px">La API key fue rechazada. Elegí proveedor y modelo, pegá una key válida y reintentamos con los mismos datos del paper:</p>
+      <div class="grid">
+        <div>
+          <label for="rcProvider">Proveedor</label>
+          <select id="rcProvider"></select>
+        </div>
+        <div>
+          <label for="rcModel">Modelo</label>
+          <select id="rcModel"></select>
+        </div>
+        <div style="grid-column:1/-1">
+          <label for="rcKey">API key</label>
+          <input id="rcKey" autocomplete="off" spellcheck="false">
+        </div>
+      </div>
+      <div class="row">
+        <button id="rcGo">Reintentar</button>
+      </div>
+    </div>
     <div class="row hidden" id="errActions">
       <button class="ghost" id="back">Volver</button>
     </div>
@@ -434,6 +454,48 @@ function setFile(f) {
 $("#go").onclick = start;
 $("#again").onclick = reset;
 $("#back").onclick = reset;
+$("#rcGo").onclick = async () => {
+  $("#rcGo").disabled = true;
+  try {
+    const r = await fetch(`/api/jobs/${jobId}/retry`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        provider: $("#rcProvider").value,
+        model: $("#rcModel").value,
+        api_key: $("#rcKey").value.trim(),
+      }),
+    });
+    if (!r.ok) {
+      const d = await r.json().catch(() => ({}));
+      $("#jerr").textContent = prettyError(d.detail || "No se pudo reintentar.");
+      return;
+    }
+    // Guardamos la key del proveedor para próximas traducciones y sincronizamos el form
+    const k = $("#rcKey").value.trim();
+    const p = $("#rcProvider").value;
+    if (k) localStorage.setItem(KEY_PREFIX + p, k);
+    provider = p;
+    $("#provider").value = p;
+    fillModels();
+    loadKey();
+    paintKey();
+    // De vuelta al modo procesando
+    $("#recoverBox").classList.add("hidden");
+    $("#errActions").classList.add("hidden");
+    const bar = $("#bar");
+    bar.classList.remove("errbar");
+    bar.classList.add("indet");
+    bar.firstElementChild.style.width = "0";
+    const stage = $("#stage");
+    stage.textContent = "En cola…";
+    stage.classList.remove("stage-err");
+    $("#jerr").textContent = "";
+    timer = setInterval(poll, 600);
+  } finally {
+    $("#rcGo").disabled = false;
+  }
+};
 $("#editMeta").onclick = async () => {
   if (!jobId) return;
   try {
@@ -529,7 +591,7 @@ async function poll() {
   } else if (j.status === "done") {
     openDone(j);
   } else if (j.status === "error") {
-    fail(j.error || "Error desconocido");
+    fail(j.error || "Error desconocido", j);
   }
 }
 
@@ -978,7 +1040,7 @@ function applyZoom(newScale) {
   queueRender();
 }
 
-function fail(rawMsg) {
+function fail(rawMsg, job) {
   clearInterval(timer);
   const bar = $("#bar");
   bar.classList.remove("indet");
@@ -988,8 +1050,31 @@ function fail(rawMsg) {
   stage.textContent = "✗ Error";
   stage.classList.add("stage-err");
   $("#jerr").textContent = prettyError(rawMsg);
+  // Key rechazada → ofrecemos reintentar ahí mismo con credenciales nuevas
+  const auth = /401|authentication|invalid api.?key|unauthoris|unauthoriz|permission/i.test(String(rawMsg || ""));
+  $("#recoverBox").classList.toggle("hidden", !auth);
+  if (auth) fillRecover(job);
   $("#errActions").classList.remove("hidden");
 }
+
+function fillRecover(job) {
+  if (!META) return;
+  $("#rcProvider").innerHTML = META.providers
+    .map(p => `<option value="${p.id}">${p.label}</option>`).join("");
+  const p = (job && job.provider) || provider || "anthropic";
+  $("#rcProvider").value = META.models[p] ? p : "anthropic";
+  fillRcModels();
+  const m = (job && job.model) || "";
+  if ([...$("#rcModel").options].some(o => o.value === m)) $("#rcModel").value = m;
+  $("#rcKey").value = "";
+}
+function fillRcModels() {
+  if (!META) return;
+  const list = META.models[$("#rcProvider").value] || [];
+  $("#rcModel").innerHTML = list.map(m => `<option value="${m.id}">${m.label}</option>`).join("");
+  $("#rcKey").placeholder = KEY_HINTS[$("#rcProvider").value] || "pegá una key válida";
+}
+$("#rcProvider").onchange = fillRcModels;
 
 function reset() {
   $("#resultPanel").classList.add("hidden");
@@ -998,6 +1083,7 @@ function reset() {
   $("#pdfScroll").innerHTML = "";
   $("#thumbs").innerHTML = "";
   $("#errActions").classList.add("hidden");
+  $("#recoverBox").classList.add("hidden");
   $("#jerr").textContent = "";
   $("#editRow").classList.add("hidden");
   const bar = $("#bar");
