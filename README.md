@@ -6,6 +6,19 @@
 
 > El camaleón de los papers: el texto cambia de idioma, el layout queda igual.
 
+<div align="center">
+  <video src="docs/paper_translate_video.mp4" controls width="640" preload="metadata"></video>
+  <p><sub>¿No reproduce inline? <a href="docs/paper_translate_video.mp4">Miralo directo acá</a>.</sub></p>
+</div>
+
+El conocimiento de frontera se publica en inglés. Si no es tu lengua materna, leer
+un paper de alta complejidad técnica es doble trabajo: decifrar la técnica y,
+encima, decifrar el idioma. Las soluciones rápidas — traductores genéricos,
+"sintetizame este paper" — destruyen justo lo que importa: las fórmulas, las
+tablas, los gráficos y la estructura del documento. Paper Chameleon traduce el
+texto y deja todo lo demás exactamente donde estaba: leés el paper completo en tu
+idioma, con la calidad del original.
+
 Traduce PDFs — principalmente papers académicos — manteniendo el layout original:
 las imágenes, fórmulas, tablas y gráficos quedan exactamente donde estaban, y solo
 el texto de redacción se traduce.
