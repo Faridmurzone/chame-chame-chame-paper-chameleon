@@ -161,7 +161,9 @@
   .comBox{display:none; flex:1; min-height:0; flex-direction:column}
   .shelf.com .comBox{display:flex}
   .shelf.com .spines{display:none}
-  .comSearch{margin:0 8px 8px; padding:7px 9px; font-size:12px}
+  .comSearchRow{display:flex; gap:6px; margin:0 8px 8px}
+  .comSearchRow input{flex:1; min-width:0}
+  .comSearchRow select{width:auto; flex-shrink:0; font-size:12px; padding:7px 6px}
   .comList{flex:1; min-height:0; overflow-y:auto; padding:0 8px 14px}
   .comItem{background:var(--panel); border:1px solid var(--border); border-radius:8px; padding:9px 10px; margin-bottom:8px; cursor:pointer}
   .comItem:hover{border-color:var(--accent)}
@@ -325,7 +327,10 @@
   </div>
   <div class="spines" id="spines"></div>
   <div class="comBox">
-    <input id="comSearch" class="comSearch" placeholder="Buscar por título, autor o keywords…" spellcheck="false">
+    <div class="comSearchRow">
+      <input id="comSearch" placeholder="Buscar título, autor o keywords…" spellcheck="false">
+      <select id="comLang" title="Idioma destino"><option value="">Todos</option></select>
+    </div>
     <div class="comList" id="comList"></div>
   </div>
 </aside>
@@ -411,6 +416,7 @@ fetch("/api/meta").then(r => r.json()).then(m => {
     .map(([k, v]) => `<option value="${k}">${v} (${k})</option>`).join("");
   $("#from").innerHTML = `<option value="auto">Auto-detectar</option>` + langOpts;
   $("#to").innerHTML = langOpts;
+  $("#comLang").innerHTML = `<option value="">Todos</option>` + langOpts;
   $("#from").value = "auto"; $("#to").value = "es";
   paintKey();
   $("#hint").textContent =
@@ -537,6 +543,9 @@ function prettyError(raw) {
 
 async function start() {
   showErr("");
+  if (typeof Notification !== "undefined" && Notification.permission === "default") {
+    try { Notification.requestPermission(); } catch {}
+  }
   const fd = new FormData();
   fd.append("file", file);
   fd.append("to", $("#to").value);
@@ -590,8 +599,10 @@ async function poll() {
     $("#stage").innerHTML = txt;
   } else if (j.status === "done") {
     openDone(j);
+    notifyDone(true, j.message || "listo para leer");
   } else if (j.status === "error") {
     fail(j.error || "Error desconocido", j);
+    notifyDone(false, prettyError(j.error || "Error desconocido").split("\n")[0]);
   }
 }
 
@@ -625,6 +636,18 @@ function fmtFecha(t) {
   const d = new Date(t * 1000);
   return d.toLocaleDateString() + " " + d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
+
+// Aviso cuando el job termina con la pestaña en segundo plano
+const BASE_TITLE = document.title;
+function notifyDone(ok, text) {
+  document.title = (ok ? "✓ " : "✗ ") + BASE_TITLE;
+  if (ok && typeof Notification !== "undefined" && Notification.permission === "granted") {
+    try { new Notification("✓ Traducción lista", { body: text, icon: "/static/logo.png" }); } catch {}
+  }
+}
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) document.title = BASE_TITLE;
+});
 
 async function fetchHistory() {
   try {
@@ -697,10 +720,12 @@ $("#spines").addEventListener("click", async e => {
 let comTimer = null;
 function fetchCommunity() {
   const q = $("#comSearch").value.trim();
-  fetch("/api/community?q=" + encodeURIComponent(q))
+  const to = $("#comLang") ? $("#comLang").value : "";
+  fetch("/api/community?q=" + encodeURIComponent(q) + "&to=" + encodeURIComponent(to))
     .then(r => r.json())
     .then(renderCommunity).catch(() => {});
 }
+$("#comLang").onchange = fetchCommunity;
 function renderCommunity(items) {
   $("#tabCom").textContent = items.length ? `Comunidad ${items.length}` : "Comunidad";
   const box = $("#comList");
