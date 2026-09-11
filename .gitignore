@@ -34,6 +34,9 @@ yarn-error.log*
 # hub local (docker compose)
 data/
 
+# notas personales (pendientes, planes) — fuera del repo público
+PENDIENTES.md
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts
